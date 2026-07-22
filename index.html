@@ -1,0 +1,1338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Draft Room — Fantasy Hockey</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root{
+  --bg:#12151A;
+  --panel:#1A1F27;
+  --panel-2:#20262F;
+  --rule:#2C333E;
+  --rule-soft:#232932;
+  --text:#E8EDF3;
+  --muted:#8D97A5;
+  --dim:#5C6674;
+  --ice:#6FCBEF;
+  --warn:#F2B035;
+  --bad:#F0574B;
+  --good:#5BD68A;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,"Roboto Mono",monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;height:100%}
+body{
+  background:var(--bg);color:var(--text);font-family:var(--sans);
+  font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased;
+  -webkit-text-size-adjust:100%;text-size-adjust:100%;
+  display:flex;flex-direction:column;min-height:100vh;min-height:100dvh;
+  padding-bottom:env(safe-area-inset-bottom);
+  overscroll-behavior-y:none;
+}
+button{font-family:inherit;font-size:13px;touch-action:manipulation;color:var(--text);background:var(--panel-2);
+  border:1px solid var(--rule);border-radius:6px;padding:7px 12px;cursor:pointer;
+  transition:background .12s,border-color .12s}
+button:hover{background:#2A313C;border-color:#3B444F}
+button:active{transform:translateY(1px)}
+button:disabled{opacity:.35;cursor:not-allowed}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--ice);outline-offset:1px}
+button.primary{background:var(--ice);border-color:var(--ice);color:#0B1116;font-weight:600}
+button.primary:hover{background:#8DD9F5}
+button.ghost{background:transparent}
+button.danger{border-color:#4A2A28;color:#F09189}
+button.danger:hover{background:#2E1D1C}
+input,select{font-family:inherit;font-size:13px;color:var(--text);background:var(--panel-2);
+  border:1px solid var(--rule);border-radius:6px;padding:7px 10px}
+input::placeholder{color:var(--dim)}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+
+/* ---------- Command bar ---------- */
+#bar{
+  display:flex;align-items:stretch;gap:0;border-bottom:1px solid var(--rule);
+  background:var(--panel);position:sticky;top:0;z-index:40;flex-wrap:wrap;
+}
+.bar-block{padding:10px 16px;border-right:1px solid var(--rule-soft);display:flex;
+  flex-direction:column;justify-content:center;gap:2px;min-height:66px}
+.eyebrow{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);font-weight:600}
+#onclock{flex:1;min-width:220px;position:relative;overflow:hidden}
+#onclock .swatch{position:absolute;left:0;top:0;bottom:0;width:5px}
+#onclock .tname{font-size:17px;font-weight:650;letter-spacing:-.01em;line-height:1.2}
+#onclock .meta{font-size:11.5px;color:var(--muted)}
+#onclock .roster{font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:.03em}
+
+/* the signature: scoreboard clock */
+#clockblock{align-items:center;gap:4px}
+#clock{
+  font-family:var(--mono);font-size:40px;line-height:1;font-weight:700;
+  letter-spacing:.02em;color:var(--text);font-variant-numeric:tabular-nums;
+  padding:2px 10px;border-radius:4px;
+  text-shadow:0 0 22px rgba(111,203,239,.22);
+}
+#clock.warn{color:var(--warn);text-shadow:0 0 22px rgba(242,176,53,.28)}
+#clock.crit{color:var(--bad);text-shadow:0 0 26px rgba(240,87,75,.4);animation:pulse 1s steps(2,end) infinite}
+#clock.paused{color:var(--dim);text-shadow:none}
+#clock.between{color:var(--ice);font-size:24px}
+@keyframes pulse{0%{opacity:1}50%{opacity:.45}100%{opacity:1}}
+@media (prefers-reduced-motion:reduce){#clock.crit{animation:none}}
+.clockctl{display:flex;gap:6px}
+.clockctl button{padding:4px 10px;font-size:12px}
+
+/* ---------- Tabs ---------- */
+#tabs{display:flex;gap:2px;padding:0 12px;background:var(--panel);border-bottom:1px solid var(--rule);
+  position:sticky;top:66px;z-index:39;overflow-x:auto}
+.tab{background:none;border:none;border-bottom:2px solid transparent;border-radius:0;
+  padding:10px 14px;color:var(--muted);font-size:13px;font-weight:550;white-space:nowrap}
+.tab:hover{background:none;color:var(--text)}
+.tab.on{color:var(--text);border-bottom-color:var(--ice)}
+
+main{flex:1;padding:16px;max-width:1500px;width:100%;margin:0 auto}
+.view{display:none}
+.view.on{display:block}
+
+/* ---------- Search ---------- */
+#searchwrap{position:relative;margin-bottom:16px}
+#searchrow{display:flex;gap:8px;align-items:center}
+#search{flex:1;font-size:15px;padding:11px 14px}
+#results{position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:50;
+  background:var(--panel);border:1px solid var(--rule);border-radius:8px;
+  max-height:min(52vh,420px);overflow:auto;box-shadow:0 14px 40px rgba(0,0,0,.55);display:none}
+#results.open{display:block}
+.res{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;
+  padding:8px 12px;cursor:pointer;border-bottom:1px solid var(--rule-soft)}
+.res:last-child{border-bottom:none}
+.res.sel,.res:hover{background:#252C36}
+.res .nm{font-weight:550}
+.res .tm{font-family:var(--mono);font-size:11.5px;color:var(--muted);letter-spacing:.05em}
+.res .ps{font-family:var(--mono);font-size:11px;padding:2px 7px;border-radius:4px;
+  background:var(--panel-2);border:1px solid var(--rule);color:var(--muted);min-width:52px;text-align:center}
+.res .ps.F{color:#8FD3F4;border-color:#2B4756}
+.res .ps.D{color:#C6A6F0;border-color:#3D3055}
+.res .ps.G{color:#F2C572;border-color:#514228}
+.empty-hint{padding:14px;color:var(--dim);font-size:13px}
+
+/* ---------- Board ---------- */
+.boardwrap{overflow-x:auto;border:1px solid var(--rule);border-radius:10px;background:var(--panel)}
+table.board{border-collapse:separate;border-spacing:0;width:100%;min-width:1180px}
+table.board th{position:sticky;top:0;background:var(--panel);z-index:2;
+  font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);
+  font-weight:700;padding:9px 6px;border-bottom:1px solid var(--rule);text-align:center}
+table.board th.rh{left:0;z-index:3;width:44px}
+table.board td.rh{position:sticky;left:0;background:var(--panel);z-index:1;
+  font-family:var(--mono);font-size:11px;color:var(--dim);text-align:center;
+  border-right:1px solid var(--rule);width:44px}
+.cell{padding:3px}
+.pk{
+  border-radius:6px;padding:6px 7px;min-height:52px;cursor:pointer;position:relative;
+  display:flex;flex-direction:column;justify-content:space-between;
+  border:1px solid rgba(255,255,255,.08);transition:transform .1s,box-shadow .1s;
+}
+.pk:hover{transform:translateY(-1px);box-shadow:0 4px 14px rgba(0,0,0,.45)}
+.pk .no{font-family:var(--mono);font-size:10px;opacity:.72;letter-spacing:.04em}
+.pk .who{font-size:11px;font-weight:700;opacity:.82;letter-spacing:.01em;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pk .plr{font-size:12px;font-weight:650;line-height:1.2;margin-top:2px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pk .sub{font-family:var(--mono);font-size:9.5px;opacity:.75;letter-spacing:.04em}
+.pk.open{opacity:.5}
+.pk.active{outline:2.5px solid var(--ice);outline-offset:1px;opacity:1;
+  box-shadow:0 0 0 5px rgba(111,203,239,.14)}
+
+/* ---------- Teams view ---------- */
+#teamgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
+.tcard{border:1px solid var(--rule);border-radius:10px;background:var(--panel);overflow:hidden}
+.tcard header{padding:9px 12px;display:flex;align-items:center;justify-content:space-between;gap:8px}
+.tcard header .n{font-weight:700;font-size:13.5px;letter-spacing:-.01em}
+.tcard header .c{font-family:var(--mono);font-size:11px;letter-spacing:.06em;opacity:.9;white-space:nowrap}
+.tcard ol{list-style:none;margin:0;padding:4px 0}
+.tcard li{display:grid;grid-template-columns:30px 1fr auto auto;gap:8px;align-items:baseline;
+  padding:5px 12px;border-bottom:1px solid var(--rule-soft);font-size:12.5px}
+.tcard li:last-child{border-bottom:none}
+.tcard li .p{font-family:var(--mono);font-size:10.5px;color:var(--dim)}
+.tcard li .t{font-family:var(--mono);font-size:10.5px;color:var(--muted)}
+.tcard li .g{font-family:var(--mono);font-size:10px;color:var(--muted);min-width:26px;text-align:right}
+.tcard li.pending{opacity:.45;font-style:italic}
+.pos-pill{font-family:var(--mono);font-size:10.5px;padding:1px 6px;border-radius:4px;
+  background:rgba(0,0,0,.28);letter-spacing:.05em}
+
+/* ---------- Pool ---------- */
+#poolctl{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;align-items:center}
+table.data{width:100%;border-collapse:collapse;font-size:13px}
+table.data th{text-align:left;font-size:10px;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--dim);font-weight:700;padding:8px 10px;border-bottom:1px solid var(--rule)}
+table.data td{padding:6px 10px;border-bottom:1px solid var(--rule-soft)}
+table.data tr.taken{color:var(--dim)}
+table.data tr.taken .nm{text-decoration:line-through}
+
+/* ---------- Setup ---------- */
+.panel{border:1px solid var(--rule);border-radius:10px;background:var(--panel);
+  padding:16px;margin-bottom:14px}
+.panel h2{margin:0 0 4px;font-size:14px;letter-spacing:-.01em}
+.panel p.help{margin:0 0 14px;color:var(--muted);font-size:12.5px;max-width:70ch}
+.trow{display:grid;grid-template-columns:26px 1fr 120px 90px;gap:10px;align-items:center;
+  padding:5px 0;border-bottom:1px solid var(--rule-soft)}
+.trow:last-child{border-bottom:none}
+.trow .ix{font-family:var(--mono);font-size:11px;color:var(--dim);text-align:right}
+.trow input[type=text]{width:100%}
+.trow input[type=color]{width:100%;height:32px;padding:2px;background:var(--panel-2);
+  border:1px solid var(--rule);border-radius:6px;cursor:pointer}
+.cnt{font-family:var(--mono);font-size:12px;text-align:center;padding:4px;border-radius:5px;
+  background:var(--panel-2);border:1px solid var(--rule);color:var(--muted)}
+.cnt.off{color:#0B1116;background:var(--warn);border-color:var(--warn);font-weight:700}
+.ownergrid{overflow-x:auto}
+table.owners{border-collapse:separate;border-spacing:2px;min-width:1000px}
+table.owners th{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);padding:4px}
+table.owners select{width:100%;padding:4px 4px;font-size:11px;font-family:var(--mono)}
+.osel{display:flex;align-items:center;gap:5px}
+.odot{width:11px;height:11px;border-radius:3px;flex:none;border:1px solid rgba(255,255,255,.2)}
+.btnrow{display:flex;gap:8px;flex-wrap:wrap}
+.note{font-size:12px;color:var(--warn);background:#241D0E;border:1px solid #4A3A16;
+  border-radius:8px;padding:10px 12px;margin-bottom:14px}
+.kv{display:flex;gap:16px;flex-wrap:wrap;font-size:12.5px;color:var(--muted)}
+.kv b{color:var(--text);font-family:var(--mono)}
+
+/* ---------- Board view switch + list ---------- */
+#boardHead{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}
+.seg{display:inline-flex;border:1px solid var(--rule);border-radius:7px;overflow:hidden}
+.seg button{border:none;border-radius:0;background:transparent;padding:7px 16px;color:var(--muted);font-weight:550}
+.seg button + button{border-left:1px solid var(--rule)}
+.seg button.on{background:var(--panel-2);color:var(--text)}
+#boardList{display:none;border:1px solid var(--rule);border-radius:10px;background:var(--panel);overflow:hidden}
+#boardList.on{display:block}
+#gridWrap.off{display:none}
+.rnd{position:sticky;top:0;z-index:2;background:var(--panel-2);border-bottom:1px solid var(--rule);
+  border-top:1px solid var(--rule);padding:5px 14px;font-size:10px;font-weight:700;
+  letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
+.rnd:first-child{border-top:none}
+.lrow{display:grid;grid-template-columns:34px 4px 1fr auto;gap:10px;align-items:center;
+  padding:9px 14px;border-bottom:1px solid var(--rule-soft);cursor:pointer}
+.lrow:last-child{border-bottom:none}
+.lrow:hover{background:#20262F}
+.lrow.open .lplr{color:var(--dim)}
+.lrow.active{background:rgba(111,203,239,.11);box-shadow:inset 3px 0 0 var(--ice)}
+.lno{font-size:11px;color:var(--dim);text-align:right}
+.ldot{align-self:stretch;border-radius:2px;min-height:28px}
+.lmain{min-width:0}
+.lteam{display:block;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);
+  font-weight:650;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lplr{display:block;font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lmeta{font-family:var(--mono);font-size:10.5px;color:var(--muted);text-align:right;white-space:nowrap}
+
+#toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(20px);
+  background:var(--panel-2);border:1px solid var(--rule);border-radius:8px;padding:10px 16px;
+  font-size:13px;opacity:0;pointer-events:none;transition:opacity .18s,transform .18s;z-index:100;
+  box-shadow:0 10px 30px rgba(0,0,0,.5)}
+#toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+
+@media (max-width:900px){
+  table.board{min-width:900px}
+  .pk{min-height:46px;padding:5px}
+  .pk .plr{font-size:11px}
+  #teamgrid{grid-template-columns:repeat(auto-fill,minmax(min(100%,280px),1fr))}
+}
+
+@media (max-width:720px){
+  /* Header: team and clock share row one, board actions wrap below. */
+  #bar{position:sticky;top:0;padding-top:env(safe-area-inset-top)}
+  #tabs{position:static;padding:0 6px}
+  .tab{padding:11px 13px;font-size:13.5px}
+  .bar-block{min-height:0;padding:8px 12px;border-right:none}
+  .bar-block .eyebrow{font-size:9px}
+  #onclock{flex:1 1 55%;min-width:0;padding-left:14px;border-bottom:1px solid var(--rule-soft)}
+  #onclock .eyebrow{display:none}
+  #onclock .tname{font-size:15px}
+  #onclock .meta{font-size:10.5px;line-height:1.3}
+  #onclock .roster{display:block}
+  #clockblock{flex:0 0 auto;align-items:flex-end;border-bottom:1px solid var(--rule-soft)}
+  #clockblock .eyebrow{display:none}
+  #clock{font-size:32px;padding:0 4px}
+  #clock.between{font-size:18px}
+  .clockctl button{padding:6px 12px}
+  #bar > .bar-block:last-child{flex:1 1 100%}
+  #bar > .bar-block:last-child .eyebrow{display:none}
+  #bar > .bar-block:last-child .btnrow button{flex:1}
+
+  main{padding:12px 10px}
+
+  /* 16px stops iOS zooming the page when the field is focused. */
+  input,select,#search{font-size:16px}
+  #search{padding:13px 14px}
+  #searchwrap{margin-bottom:12px}
+  #searchrow{gap:6px}
+  #btnClearPick{padding:12px 10px;font-size:12px;white-space:nowrap}
+  #results{max-height:min(46dvh,340px)}
+  .res{padding:12px}
+  .res .nm{font-size:15px}
+
+  #boardHead{flex-wrap:wrap}
+  .seg button{padding:9px 20px}
+  #btnJump{padding:9px 12px}
+
+  .tcard li{grid-template-columns:26px 1fr auto;padding:8px 12px}
+  .tcard li .t{display:none}
+
+  .trow{grid-template-columns:22px 1fr 64px;grid-template-areas:"ix name color" "cnt cnt cnt";
+    gap:8px;padding:9px 0}
+  .trow .ix{grid-area:ix}
+  .trow input[type=text]{grid-area:name}
+  .trow input[type=color]{grid-area:color}
+  .trow .cnt{grid-area:cnt;text-align:left;padding:3px 8px}
+  table.owners select{padding:8px 4px}
+  .panel{padding:13px}
+
+  #toast{bottom:calc(16px + env(safe-area-inset-bottom));left:12px;right:12px;
+    transform:translateY(20px);max-width:none}
+  #toast.on{transform:translateY(0)}
+}
+
+@media (max-width:420px){
+  #clock{font-size:27px}
+  #onclock .tname{font-size:14px}
+  .lrow{grid-template-columns:28px 4px 1fr;gap:8px}
+  .lmeta{grid-column:3;text-align:left;padding-top:1px}
+}
+</style>
+</head>
+<body>
+
+<div id="bar">
+  <div class="bar-block" id="onclock">
+    <div class="swatch" id="ocSwatch"></div>
+    <div class="eyebrow" id="ocEyebrow">On the clock</div>
+    <div class="tname" id="ocName">—</div>
+    <div class="meta"><span id="ocMeta"></span> <span class="roster" id="ocRoster"></span></div>
+  </div>
+  <div class="bar-block" id="clockblock">
+    <div class="eyebrow">Time remaining</div>
+    <div id="clock" class="mono">1:30</div>
+    <div class="clockctl">
+      <button id="btnStart">Start</button>
+      <button id="btnResetClock" class="ghost">Reset clock</button>
+    </div>
+  </div>
+  <div class="bar-block">
+    <div class="eyebrow">Board</div>
+    <div class="btnrow">
+      <button id="btnUndo">Undo last pick</button>
+      <button id="btnCopy">Copy for Sheets</button>
+    </div>
+  </div>
+</div>
+
+<div id="tabs">
+  <button class="tab on" data-v="board">Draft board</button>
+  <button class="tab" data-v="teams">By team</button>
+  <button class="tab" data-v="pool">Player pool</button>
+  <button class="tab" data-v="setup">Setup</button>
+</div>
+
+<main>
+
+  <!-- BOARD -->
+  <section class="view on" id="v-board">
+    <div id="searchwrap">
+      <div id="searchrow">
+        <input id="search" placeholder="Type a player name, or click here for the full list…" autocomplete="off" spellcheck="false">
+        <button id="btnClearPick" class="ghost">Clear this pick</button>
+      </div>
+      <div id="results"></div>
+    </div>
+    <div id="boardHead">
+      <div class="seg">
+        <button data-bv="list">List</button>
+        <button data-bv="grid">Grid</button>
+      </div>
+      <button id="btnJump" class="ghost">Jump to current pick</button>
+    </div>
+    <div class="boardwrap" id="gridWrap"><table class="board" id="boardTable"></table></div>
+    <div id="boardList"></div>
+  </section>
+
+  <!-- TEAMS -->
+  <section class="view" id="v-teams">
+    <div class="btnrow" style="margin-bottom:12px">
+      <button id="btnCopyTeams">Copy rosters for Sheets</button>
+      <button id="btnCsvTeams" class="ghost">Download rosters CSV</button>
+    </div>
+    <div id="teamgrid"></div>
+  </section>
+
+  <!-- POOL -->
+  <section class="view" id="v-pool">
+    <div id="poolctl">
+      <input id="poolSearch" placeholder="Filter players…" style="min-width:220px">
+      <select id="poolPos">
+        <option value="">All positions</option>
+        <option value="F">Forwards</option>
+        <option value="D">Defence</option>
+        <option value="G">Goalies</option>
+      </select>
+      <select id="poolAvail">
+        <option value="avail">Available only</option>
+        <option value="all">All players</option>
+        <option value="taken">Drafted only</option>
+      </select>
+      <select id="poolSrc">
+        <option value="">All sources</option>
+        <option value="roster">NHL rosters</option>
+        <option value="prospect">Prospects</option>
+        <option value="draft26">2026 draft class</option>
+        <option value="file">Uploaded file</option>
+      </select>
+      <span class="kv"><span>Loaded <b id="poolCount">0</b></span><span>Available <b id="poolAvailCount">0</b></span></span>
+    </div>
+    <div class="panel" style="padding:0;overflow:auto;max-height:70vh">
+      <table class="data" id="poolTable"></table>
+    </div>
+  </section>
+
+  <!-- SETUP -->
+  <section class="view" id="v-setup">
+
+    <div class="panel">
+      <h2>Player list</h2>
+      <p class="help">Pull the pool straight from NHL.com — no file needed. This reads the live 2026-27 rosters,
+        so run it again on draft day to catch late signings and trades.</p>
+      <div class="btnrow">
+        <button id="btnFetchNhl" class="primary">Load players from NHL.com</button>
+        <button id="btnPoolCsv" class="ghost">Download player pool CSV</button>
+      </div>
+      <div class="btnrow" style="margin-top:10px">
+        <label class="kv"><input id="optProspects" type="checkbox" style="margin-right:6px">Add organisational prospects</label>
+        <label class="kv"><input id="optDraft" type="checkbox" style="margin-right:6px">Add the 2026 draft class</label>
+        <label class="kv"><input id="optProxy" type="checkbox" checked style="margin-right:6px">Retry through a proxy if blocked</label>
+      </div>
+      <div id="fetchBar" style="display:none;height:4px;background:var(--rule);border-radius:2px;margin-top:12px;overflow:hidden">
+        <div id="fetchFill" style="height:100%;width:0;background:var(--ice);transition:width .15s"></div>
+      </div>
+      <div class="kv" style="margin-top:10px"><span id="loadStatus">No players loaded.</span></div>
+      <details style="margin-top:16px">
+        <summary style="cursor:pointer;color:var(--muted);font-size:12.5px">Upload a spreadsheet instead</summary>
+        <p class="help" style="margin-top:10px">One row per player. Headers are matched loosely — a name column
+          (<em>Player</em>, <em>Name</em>, or <em>First</em> + <em>Last</em>), a team column, and a position column.</p>
+        <div class="btnrow">
+          <input type="file" id="fileIn" accept=".xlsx,.xls,.csv,.tsv" style="padding:6px">
+          <button id="btnClearPlayers" class="danger">Remove all players</button>
+        </div>
+      </details>
+    </div>
+
+    <div class="panel">
+      <h2>Teams</h2>
+      <p class="help">Names and colours are taken from your sheet, in order. Edit either one here.
+        The count column shows how many picks each team currently owns on the board.</p>
+      <div id="teamEdit"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Pick ownership</h2>
+      <div class="note" id="ownerNote"></div>
+      <p class="help">Rows are rounds, columns are the original draft slots. Change any cell to reassign a traded pick.
+        Counts update live in the Teams panel above.</p>
+      <div class="ownergrid"><table class="owners" id="ownerTable"></table></div>
+    </div>
+
+    <div class="panel">
+      <h2>Timer</h2>
+      <div class="btnrow" style="align-items:center">
+        <label class="kv">Pick clock (seconds) <input id="cfgPick" type="number" min="10" max="600" style="width:80px;margin-left:6px"></label>
+        <label class="kv">Delay between picks (seconds) <input id="cfgDelay" type="number" min="0" max="60" style="width:70px;margin-left:6px"></label>
+        <label class="kv"><input id="cfgAuto" type="checkbox" style="margin-right:6px">Auto-start next pick</label>
+        <label class="kv"><input id="cfgBeep" type="checkbox" style="margin-right:6px">Sound at 10s and 0</label>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Save and export</h2>
+      <p class="help">The draft saves to this browser automatically. Download a backup file before you start —
+        it restores everything including the board, teams and player list.</p>
+      <div class="btnrow">
+        <button id="btnSaveJson">Download backup</button>
+        <label class="ghost" style="display:inline-flex;align-items:center;gap:6px;border:1px solid var(--rule);border-radius:6px;padding:6px 10px;cursor:pointer;font-size:13px">
+          Restore backup <input type="file" id="jsonIn" accept=".json" style="display:none">
+        </label>
+        <button id="btnCsvAll" class="ghost">Download results CSV</button>
+        <button id="btnResetDraft" class="danger">Clear all picks</button>
+      </div>
+    </div>
+
+  </section>
+</main>
+
+<div id="toast"></div>
+
+<script>
+"use strict";
+/* =========================================================================
+   Fantasy hockey draft room — single file, no build step.
+   Edit DEFAULT_TEAMS / DEFAULT_BOARD below to change the league defaults.
+   ========================================================================= */
+
+const ROUNDS = 13, SLOTS = 10, TOTAL = ROUNDS * SLOTS;
+const STORE_KEY = "draftroom.hockey.v2";
+
+/* Team order matches the "Team Name" and "Team Color" columns from the sheet. */
+const DEFAULT_TEAMS = [
+  { code:"BLU", name:"Las Aranas Discoteca", color:"#5BC0F0" },
+  { code:"BLK", name:"The Black Rhinos",     color:"#101216" },
+  { code:"NVY", name:"Sabre the Flavour",    color:"#35679F" },
+  { code:"RED", name:"The Aces",             color:"#E12B20" },
+  { code:"MAG", name:"Whimsical Strangers",  color:"#E77DF0" },
+  { code:"TEA", name:"Ice Skunks",           color:"#359A70" },
+  { code:"YEL", name:"Up In Moke",           color:"#F5EF2E" },
+  { code:"PUR", name:"The Jokers",           color:"#6A2FA6" },
+  { code:"GRN", name:"Wyatt's OT Winners",   color:"#5AD93B" },
+  { code:"ORG", name:"Very Knies Team",      color:"#F08A28" }
+];
+
+/* Pick ownership read off the draft board, round by round, slots 1-10.
+   All ten teams own exactly 13 picks. Edit any cell on the Setup tab. */
+const DEFAULT_BOARD = [
+  "MAG","GRN","BLK","ORG","BLU","YEL","RED","PUR","TEA","NVY", // R1  1-10
+  "ORG","GRN","BLK","MAG","MAG","MAG","RED","PUR","TEA","NVY", // R2  11-20
+  "ORG","GRN","BLK","YEL","ORG","MAG","RED","PUR","TEA","NVY", // R3  21-30
+  "ORG","GRN","BLK","MAG","YEL","BLU","RED","PUR","BLK","NVY", // R4  31-40
+  "ORG","GRN","BLK","MAG","YEL","BLU","RED","NVY","TEA","NVY", // R5  41-50
+  "ORG","GRN","BLK","MAG","YEL","BLU","RED","PUR","BLK","NVY", // R6  51-60
+  "YEL","GRN","BLK","MAG","YEL","MAG","RED","PUR","TEA","NVY", // R7  61-70
+  "BLU","GRN","BLK","BLU","MAG","MAG","RED","PUR","TEA","PUR", // R8  71-80
+  "ORG","GRN","TEA","BLU","YEL","BLU","RED","PUR","TEA","NVY", // R9  81-90
+  "ORG","GRN","BLK","BLU","YEL","BLU","RED","PUR","TEA","NVY", // R10 91-100
+  "ORG","GRN","BLK","MAG","YEL","ORG","RED","PUR","TEA","NVY", // R11 101-110
+  "ORG","GRN","TEA","BLU","YEL","BLU","RED","PUR","TEA","NVY", // R12 111-120
+  "ORG","GRN","BLK","BLU","YEL","YEL","RED","PUR","TEA","NVY"  // R13 121-130
+];
+
+/* ---------------- state ---------------- */
+let S = {
+  teams: DEFAULT_TEAMS.map(t => ({...t})),
+  board: DEFAULT_BOARD.slice(),
+  players: [],                  // {id,name,team,pos,cat}
+  picks: new Array(TOTAL).fill(null), // playerId or null
+  order: [],                    // chronological pick indexes, for undo
+  active: 0,                    // pick index the search box writes to
+  cfg: { pick:90, delay:5, auto:true, beep:true },
+  boardView: null           // 'grid' | 'list'; null = pick one from screen width
+};
+
+let clock = { left: 90, running:false, between:false, betweenLeft:0, last:0 };
+let tickHandle = null;
+
+/* ---------------- storage ---------------- */
+function save(){
+  try{
+    localStorage.setItem(STORE_KEY, JSON.stringify({
+      teams:S.teams, board:S.board, players:S.players,
+      picks:S.picks, order:S.order, active:S.active, cfg:S.cfg, boardView:S.boardView
+    }));
+  }catch(e){ /* private mode or sandbox — in-memory only */ }
+}
+function load(){
+  try{
+    const raw = localStorage.getItem(STORE_KEY);
+    if(!raw) return false;
+    const d = JSON.parse(raw);
+    if(!d || !Array.isArray(d.board)) return false;
+    S.teams   = d.teams   || S.teams;
+    S.board   = d.board.length===TOTAL ? d.board : S.board;
+    S.players = d.players || [];
+    S.picks   = (d.picks && d.picks.length===TOTAL) ? d.picks : new Array(TOTAL).fill(null);
+    S.order   = d.order   || [];
+    S.active  = typeof d.active==="number" ? d.active : 0;
+    S.cfg     = Object.assign(S.cfg, d.cfg||{});
+    S.boardView = d.boardView || null;
+    return true;
+  }catch(e){ return false; }
+}
+
+/* ---------------- helpers ---------------- */
+const teamByCode = c => S.teams.find(t=>t.code===c) || S.teams[0];
+const playerById = id => S.players.find(p=>p.id===id) || null;
+const roundOf = i => Math.floor(i/SLOTS)+1;
+const slotOf  = i => (i%SLOTS)+1;
+
+function ink(hex){
+  const h = hex.replace("#","");
+  const n = h.length===3 ? h.split("").map(c=>c+c).join("") : h;
+  const r=parseInt(n.slice(0,2),16), g=parseInt(n.slice(2,4),16), b=parseInt(n.slice(4,6),16);
+  const L = (0.2126*r + 0.7152*g + 0.0722*b)/255;
+  return L > 0.52 ? "#0B0E12" : "#FFFFFF";
+}
+
+/* Position bucket. Goalie wins, then defence, everything else is a forward.
+   Change the order of these two checks if you'd rather multi-eligible
+   skaters (e.g. "D,RW") count as forwards. */
+function bucket(pos){
+  const toks = String(pos||"").toUpperCase().split(/[^A-Z]+/).filter(Boolean);
+  if(toks.includes("G")||toks.includes("GK")) return "G";
+  if(toks.some(t=>t==="D"||t==="LD"||t==="RD"||t==="DEF")) return "D";
+  return "F";
+}
+
+function firstOpen(){
+  for(let i=0;i<TOTAL;i++) if(!S.picks[i]) return i;
+  return -1;
+}
+function counts(code){
+  const c = {F:0,D:0,G:0,total:0};
+  S.picks.forEach((pid,i)=>{
+    if(!pid || S.board[i]!==code) return;
+    const p = playerById(pid); if(!p) return;
+    c[p.cat]++; c.total++;
+  });
+  return c;
+}
+function ownedCount(code){ return S.board.filter(c=>c===code).length; }
+
+function toast(msg){
+  const el = document.getElementById("toast");
+  el.textContent = msg; el.classList.add("on");
+  clearTimeout(toast._t); toast._t = setTimeout(()=>el.classList.remove("on"), 2200);
+}
+
+/* ---------------- clock ---------------- */
+function beep(freq, ms){
+  if(!S.cfg.beep) return;
+  try{
+    const Ctx = window.AudioContext||window.webkitAudioContext; if(!Ctx) return;
+    beep.ctx = beep.ctx || new Ctx();
+    const o = beep.ctx.createOscillator(), g = beep.ctx.createGain();
+    o.frequency.value = freq; o.type="square";
+    g.gain.setValueAtTime(0.09, beep.ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, beep.ctx.currentTime + ms/1000);
+    o.connect(g); g.connect(beep.ctx.destination); o.start();
+    o.stop(beep.ctx.currentTime + ms/1000);
+  }catch(e){}
+}
+
+function startTick(){
+  if(tickHandle) return;
+  clock.last = Date.now();
+  tickHandle = setInterval(()=>{
+    const now = Date.now(), dt = (now - clock.last)/1000; clock.last = now;
+    if(clock.between){
+      clock.betweenLeft -= dt;
+      if(clock.betweenLeft <= 0){
+        clock.between = false;
+        clock.left = S.cfg.pick;
+        clock.running = S.cfg.auto;
+        if(!clock.running) stopTick();
+      }
+      drawClock(); return;
+    }
+    if(!clock.running){ stopTick(); return; }
+    const before = clock.left;
+    clock.left = Math.max(0, clock.left - dt);
+    if(before > 10 && clock.left <= 10) beep(760, 140);
+    if(before > 0 && clock.left === 0){ beep(300, 700); clock.running = false; }
+    drawClock();
+  }, 100);
+}
+function stopTick(){ clearInterval(tickHandle); tickHandle = null; drawClock(); }
+
+function drawClock(){
+  const el = document.getElementById("clock");
+  el.className = "mono";
+  if(clock.between){
+    el.classList.add("between");
+    el.textContent = "Next in " + Math.ceil(clock.betweenLeft);
+  }else{
+    const t = Math.ceil(clock.left);
+    el.textContent = Math.floor(t/60) + ":" + String(t%60).padStart(2,"0");
+    if(!clock.running) el.classList.add("paused");
+    else if(clock.left <= 10) el.classList.add("crit");
+    else if(clock.left <= 30) el.classList.add("warn");
+  }
+  document.getElementById("btnStart").textContent =
+    clock.between ? "Skip delay" : (clock.running ? "Pause" : "Start");
+}
+
+function resetClock(startIt){
+  clock.between=false; clock.left = S.cfg.pick; clock.running = !!startIt;
+  if(clock.running) startTick(); else stopTick();
+  drawClock();
+}
+function afterPickClock(){
+  if(S.cfg.delay > 0){
+    clock.between = true; clock.betweenLeft = S.cfg.delay; startTick();
+  }else{
+    resetClock(S.cfg.auto);
+  }
+  drawClock();
+}
+
+/* ---------------- picks ---------------- */
+function makePick(playerId){
+  const i = S.active;
+  if(i<0 || i>=TOTAL) return;
+  if(S.picks[i]) S.order = S.order.filter(x=>x!==i);
+  S.picks[i] = playerId;
+  S.order.push(i);
+  const nxt = firstOpen();
+  S.active = nxt === -1 ? i : nxt;
+  save(); renderAll(); afterPickClock(); scrollToActive();
+  const p = playerById(playerId);
+  toast(`Pick ${i+1} — ${p ? p.name : "player"} to ${teamByCode(S.board[i]).name}`);
+}
+function clearPick(i){
+  if(!S.picks[i]) return;
+  S.picks[i] = null;
+  S.order = S.order.filter(x=>x!==i);
+  S.active = i;
+  save(); renderAll();
+}
+function undo(){
+  if(!S.order.length){ toast("Nothing to undo."); return; }
+  const i = S.order[S.order.length-1];
+  clearPick(i); S.active = i; renderAll();
+  resetClock(false);
+  toast(`Pick ${i+1} cleared.`);
+}
+
+/* ---------------- render: on the clock ---------------- */
+function renderBar(){
+  const i = S.active, t = teamByCode(S.board[i]);
+  document.getElementById("ocSwatch").style.background = t.color;
+  const done = S.picks.filter(Boolean).length;
+  document.getElementById("ocEyebrow").textContent =
+    done >= TOTAL ? "Draft complete" : "On the clock";
+  document.getElementById("ocName").textContent = t.name;
+  document.getElementById("ocMeta").textContent =
+    `Pick ${i+1} of ${TOTAL} · Round ${roundOf(i)} · Slot ${slotOf(i)}`;
+  const c = counts(t.code);
+  document.getElementById("ocRoster").textContent =
+    `· F ${c.F} D ${c.D} G ${c.G} (${c.total}/${ownedCount(t.code)})`;
+}
+
+/* ---------------- render: board ---------------- */
+function renderBoard(){
+  const tb = document.getElementById("boardTable");
+  let h = "<thead><tr><th class='rh'>Rd</th>";
+  for(let s=1;s<=SLOTS;s++) h += `<th>Slot ${s}</th>`;
+  h += "</tr></thead><tbody>";
+  for(let r=0;r<ROUNDS;r++){
+    h += `<tr><td class='rh'>${r+1}</td>`;
+    for(let s=0;s<SLOTS;s++){
+      const i = r*SLOTS+s, t = teamByCode(S.board[i]), pid = S.picks[i], p = pid?playerById(pid):null;
+      const fg = ink(t.color);
+      const cls = "pk" + (p ? "" : " open") + (i===S.active ? " active" : "");
+      h += `<td class='cell'><div class='${cls}' data-i='${i}' style="background:${t.color};color:${fg}">
+        <div style="display:flex;justify-content:space-between;gap:6px">
+          <span class='no'>${i+1}</span><span class='who'>${esc(shortName(t.name))}</span>
+        </div>
+        ${ p ? `<div><div class='plr'>${esc(p.name)}</div>
+                 <div class='sub'>${esc(p.team)} · ${esc(p.pos)}</div></div>`
+             : `<div class='sub' style="opacity:.5">—</div>` }
+      </div></td>`;
+    }
+    h += "</tr>";
+  }
+  tb.innerHTML = h + "</tbody>";
+  tb.querySelectorAll(".pk").forEach(el=>{
+    el.addEventListener("click", ()=>{
+      S.active = +el.dataset.i; save(); renderAll();
+      document.getElementById("search").focus();
+    });
+  });
+}
+function shortName(n){ return n.length>18 ? n.slice(0,17)+"…" : n; }
+function esc(s){ return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+
+/* ---------------- render: board as a list ---------------- */
+function renderList(){
+  let h = "";
+  for(let r=0;r<ROUNDS;r++){
+    h += `<div class="rnd">Round ${r+1}</div>`;
+    for(let sl=0;sl<SLOTS;sl++){
+      const i = r*SLOTS+sl, t = teamByCode(S.board[i]), pid = S.picks[i], p = pid?playerById(pid):null;
+      h += `<div class="lrow ${p?"":"open"} ${i===S.active?"active":""}" data-i="${i}">
+        <span class="lno mono">${i+1}</span>
+        <span class="ldot" style="background:${t.color}"></span>
+        <span class="lmain">
+          <span class="lteam">${esc(t.name)}</span>
+          <span class="lplr">${p ? esc(p.name) : (i===S.active ? "On the clock" : "—")}</span>
+        </span>
+        <span class="lmeta">${p ? esc(p.team) + " · " + esc(p.pos) : ""}</span>
+      </div>`;
+    }
+  }
+  const el = document.getElementById("boardList");
+  el.innerHTML = h;
+  el.querySelectorAll(".lrow").forEach(row=>{
+    row.addEventListener("click", ()=>{
+      S.active = +row.dataset.i; save(); renderAll();
+      document.getElementById("search").focus();
+    });
+  });
+}
+
+function boardView(){
+  if(S.boardView) return S.boardView;
+  return window.innerWidth < 720 ? "list" : "grid";
+}
+function applyBoardView(){
+  const v = boardView();
+  document.getElementById("boardList").classList.toggle("on", v==="list");
+  document.getElementById("gridWrap").classList.toggle("off", v==="list");
+  document.querySelectorAll("[data-bv]").forEach(b=>b.classList.toggle("on", b.dataset.bv===v));
+}
+function scrollToActive(block){
+  const v = boardView();
+  const el = v==="list"
+    ? document.querySelector(`#boardList .lrow[data-i="${S.active}"]`)
+    : document.querySelector(`#boardTable .pk[data-i="${S.active}"]`);
+  if(el) el.scrollIntoView({block: block || "nearest", inline:"center",
+    behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"});
+}
+
+/* ---------------- render: teams ---------------- */
+function renderTeams(){
+  const g = document.getElementById("teamgrid");
+  g.innerHTML = S.teams.map(t=>{
+    const c = counts(t.code), fg = ink(t.color);
+    const rows = [];
+    S.board.forEach((code,i)=>{
+      if(code!==t.code) return;
+      const pid = S.picks[i], p = pid?playerById(pid):null;
+      rows.push(`<li class="${p?"":"pending"}">
+        <span class='p'>${i+1}</span>
+        <span>${p?esc(p.name):"—"}</span>
+        <span class='t'>${p?esc(p.team):""}</span>
+        <span class='g'>${p?esc(p.pos):""}</span>
+      </li>`);
+    });
+    return `<div class="tcard">
+      <header style="background:${t.color};color:${fg}">
+        <span class="n">${esc(t.name)}</span>
+        <span class="c"><span class="pos-pill">F ${c.F}</span> <span class="pos-pill">D ${c.D}</span> <span class="pos-pill">G ${c.G}</span></span>
+      </header>
+      <ol>${rows.join("")}</ol>
+    </div>`;
+  }).join("");
+}
+
+/* ---------------- render: pool ---------------- */
+function renderPool(){
+  const q = document.getElementById("poolSearch").value.trim().toLowerCase();
+  const pos = document.getElementById("poolPos").value;
+  const av  = document.getElementById("poolAvail").value;
+  const src = document.getElementById("poolSrc").value;
+  const taken = new Set(S.picks.filter(Boolean));
+  const rows = S.players.filter(p=>{
+    if(q && !p.name.toLowerCase().includes(q) && !String(p.team).toLowerCase().includes(q)) return false;
+    if(pos && p.cat!==pos) return false;
+    if(src && p.src!==src) return false;
+    if(av==="avail" && taken.has(p.id)) return false;
+    if(av==="taken" && !taken.has(p.id)) return false;
+    return true;
+  });
+  document.getElementById("poolCount").textContent = S.players.length;
+  document.getElementById("poolAvailCount").textContent = S.players.length - taken.size;
+  const idxOf = {};
+  S.picks.forEach((pid,i)=>{ if(pid) idxOf[pid]=i; });
+  document.getElementById("poolTable").innerHTML =
+    `<thead><tr><th>Player</th><th>Team</th><th>Pos</th><th>Slot</th><th>Source</th><th>Drafted</th></tr></thead><tbody>` +
+    rows.slice(0,1500).map(p=>{
+      const i = idxOf[p.id];
+      return `<tr class="${i!=null?"taken":""}">
+        <td class="nm">${esc(p.name)}</td><td class="mono">${esc(p.team)}</td>
+        <td class="mono">${esc(p.pos)}</td><td class="mono">${p.cat}</td>
+        <td class="mono" style="font-size:11px;color:var(--dim)">${esc(SRC_LABEL[p.src]||"")}</td>
+        <td class="mono">${i!=null ? `#${i+1} ${esc(teamByCode(S.board[i]).name)}` : ""}</td>
+      </tr>`;
+    }).join("") + "</tbody>";
+}
+
+/* ---------------- render: setup ---------------- */
+function renderSetup(){
+  const te = document.getElementById("teamEdit");
+  te.innerHTML = S.teams.map((t,ix)=>`
+    <div class="trow">
+      <span class="ix">${ix+1}</span>
+      <input type="text" data-tn="${ix}" value="${esc(t.name)}">
+      <input type="color" data-tc="${ix}" value="${t.color}">
+      <div class="cnt ${ownedCount(t.code)===ROUNDS?"":"off"}">${ownedCount(t.code)} picks</div>
+    </div>`).join("");
+  te.querySelectorAll("[data-tn]").forEach(el=>el.addEventListener("input",e=>{
+    S.teams[+el.dataset.tn].name = e.target.value; save(); renderBar(); renderBoard(); renderTeams();
+  }));
+  te.querySelectorAll("[data-tc]").forEach(el=>el.addEventListener("input",e=>{
+    S.teams[+el.dataset.tc].color = e.target.value; save(); renderBar(); renderBoard(); renderTeams();
+  }));
+
+  const bad = S.teams.filter(t=>ownedCount(t.code)!==ROUNDS);
+  const note = document.getElementById("ownerNote");
+  note.style.display="block";
+  note.style.background=""; note.style.borderColor=""; note.style.color="";
+  if(bad.length){
+    note.innerHTML = `These teams don't own ${ROUNDS} picks: <b>` +
+      bad.map(t=>`${esc(t.name)} (${ownedCount(t.code)})`).join(", ") + `</b>. Every team should own ${ROUNDS}. Fix them below.`;
+  } else {
+    note.style.display="block"; note.style.background="#0F2418"; note.style.borderColor="#1F4A32";
+    note.style.color="#8FE0AE";
+    note.textContent = `All ten teams own exactly ${ROUNDS} picks. The board balances.`;
+  }
+
+  const opts = S.teams.map(t=>`<option value="${t.code}">${esc(t.name)}</option>`).join("");
+  let h = "<thead><tr><th>Rd</th>";
+  for(let s=1;s<=SLOTS;s++) h += `<th>${s}</th>`;
+  h += "</tr></thead><tbody>";
+  for(let r=0;r<ROUNDS;r++){
+    h += `<tr><th>${r+1}</th>`;
+    for(let s=0;s<SLOTS;s++){
+      const i=r*SLOTS+s, t=teamByCode(S.board[i]);
+      h += `<td><div class="osel"><span class="odot" style="background:${t.color}"></span>
+        <select data-o="${i}">${opts}</select></div></td>`;
+    }
+    h += "</tr>";
+  }
+  const ot = document.getElementById("ownerTable");
+  ot.innerHTML = h + "</tbody>";
+  ot.querySelectorAll("[data-o]").forEach(sel=>{
+    sel.value = S.board[+sel.dataset.o];
+    sel.addEventListener("change",()=>{
+      S.board[+sel.dataset.o] = sel.value; save(); renderAll();
+    });
+  });
+
+  document.getElementById("cfgPick").value  = S.cfg.pick;
+  document.getElementById("cfgDelay").value = S.cfg.delay;
+  document.getElementById("cfgAuto").checked = S.cfg.auto;
+  document.getElementById("cfgBeep").checked = S.cfg.beep;
+  document.getElementById("loadStatus").textContent =
+    S.players.length ? `${S.players.length} players loaded.` : "No players loaded.";
+}
+
+function renderAll(){
+  renderBar(); renderBoard(); renderList(); applyBoardView();
+  renderTeams(); renderPool(); renderSetup();
+}
+
+/* ---------------- search ---------------- */
+let resSel = 0, resList = [];
+function runSearch(){
+  const q = document.getElementById("search").value.trim().toLowerCase();
+  const taken = new Set(S.picks.filter(Boolean));
+  let list = S.players.filter(p=>!taken.has(p.id));
+  if(q){
+    list = list.filter(p =>
+      p.name.toLowerCase().includes(q) ||
+      String(p.team).toLowerCase().startsWith(q) ||
+      String(p.pos).toLowerCase().startsWith(q));
+    list.sort((a,b)=>{
+      const ai=a.name.toLowerCase().indexOf(q), bi=b.name.toLowerCase().indexOf(q);
+      const al=a.name.toLowerCase().split(" ").slice(-1)[0].startsWith(q)?0:1;
+      const bl=b.name.toLowerCase().split(" ").slice(-1)[0].startsWith(q)?0:1;
+      return (al-bl) || (ai-bi) || a.name.localeCompare(b.name);
+    });
+  }else{
+    list = list.slice().sort((a,b)=>a.name.localeCompare(b.name));
+  }
+  resList = list.slice(0,60); resSel = 0; drawResults();
+}
+function drawResults(){
+  const box = document.getElementById("results");
+  if(!S.players.length){
+    box.innerHTML = `<div class="empty-hint">No players loaded yet. Open Setup and upload your spreadsheet.</div>`;
+    box.classList.add("open"); return;
+  }
+  if(!resList.length){
+    box.innerHTML = `<div class="empty-hint">No available player matches that.</div>`;
+    box.classList.add("open"); return;
+  }
+  box.innerHTML = resList.map((p,ix)=>`
+    <div class="res ${ix===resSel?"sel":""}" data-id="${esc(p.id)}">
+      <span class="nm">${esc(p.name)}</span>
+      <span class="tm">${esc(p.team)}</span>
+      <span class="ps ${p.cat}">${esc(p.pos)}</span>
+    </div>`).join("");
+  box.classList.add("open");
+  box.querySelectorAll(".res").forEach(el=>{
+    el.addEventListener("mousedown", ev=>{ ev.preventDefault(); pickFromSearch(el.dataset.id); });
+  });
+  const sel = box.querySelector(".res.sel"); if(sel) sel.scrollIntoView({block:"nearest"});
+}
+function pickFromSearch(id){
+  makePick(id);
+  const s = document.getElementById("search"); s.value=""; runSearch(); s.focus();
+}
+function closeResults(){ document.getElementById("results").classList.remove("open"); }
+
+/* ---------------- NHL.com import ---------------- */
+const NHL_TEAMS = ["ANA","BOS","BUF","CGY","CAR","CHI","COL","CBJ","DAL","DET","EDM","FLA",
+  "LAK","MIN","MTL","NSH","NJD","NYI","NYR","OTT","PHI","PIT","SJS","SEA","STL","TBL",
+  "TOR","UTA","VAN","VGK","WSH","WPG"];
+/* NHL uses C/L/R/D/G; Yahoo shows C/LW/RW/D/G. */
+const POS_MAP = {C:"C", L:"LW", R:"RW", D:"D", G:"G", LW:"LW", RW:"RW"};
+const SRC_LABEL = {roster:"NHL roster", prospect:"Prospect", draft26:"2026 draft", file:"File"};
+const dn = o => (o && (o.default != null ? o.default : o)) || "";
+
+async function getJson(url, allowProxy){
+  const hit = async u => {
+    const r = await fetch(u, {headers:{Accept:"application/json"}});
+    if(!r.ok) throw new Error("HTTP " + r.status);
+    return r.json();
+  };
+  try{ return await hit(url); }
+  catch(err){
+    if(!allowProxy) throw err;
+    return hit("https://api.allorigins.win/raw?url=" + encodeURIComponent(url));
+  }
+}
+
+async function runJobs(jobs, proxy, onStep){
+  const out = [], fails = [];
+  let idx = 0, done = 0;
+  const worker = async () => {
+    while(idx < jobs.length){
+      const j = jobs[idx++];
+      try{ out.push({job:j, data: await getJson(j.url, proxy)}); }
+      catch(err){ fails.push(j.team || j.kind); }
+      onStep(++done, jobs.length);
+    }
+  };
+  await Promise.all(Array.from({length:6}, worker));
+  return {out, fails};
+}
+
+function addRosterPeople(map, data, team, src){
+  ["forwards","defensemen","goalies"].forEach(group=>{
+    (data[group] || []).forEach(p=>{
+      const key = "nhl-" + p.id;
+      const existing = map.get(key);
+      if(existing && existing.src === "roster" && src !== "roster") return;
+      const pos = POS_MAP[p.positionCode] || p.positionCode || "";
+      map.set(key, {
+        id: key,
+        name: (dn(p.firstName) + " " + dn(p.lastName)).trim(),
+        team: team,
+        pos: pos || "—",
+        cat: bucket(p.positionCode),
+        src: src
+      });
+    });
+  });
+}
+
+async function fetchFromNhl(){
+  const btn = document.getElementById("btnFetchNhl");
+  const bar = document.getElementById("fetchBar"), fill = document.getElementById("fetchFill");
+  const status = document.getElementById("loadStatus");
+  const proxy = document.getElementById("optProxy").checked;
+  const wantPros = document.getElementById("optProspects").checked;
+  const wantDraft = document.getElementById("optDraft").checked;
+
+  const jobs = NHL_TEAMS.map(t => ({kind:"roster", team:t, url:`https://api-web.nhle.com/v1/roster/${t}/current`}));
+  if(wantPros) NHL_TEAMS.forEach(t => jobs.push({kind:"prospect", team:t, url:`https://api-web.nhle.com/v1/prospects/${t}`}));
+  if(wantDraft) jobs.push({kind:"draft26", team:"", url:"https://api-web.nhle.com/v1/draft/picks/2026/all"});
+
+  btn.disabled = true; bar.style.display = "block"; fill.style.width = "0%";
+  status.textContent = "Contacting NHL.com…";
+
+  let res;
+  try{
+    res = await runJobs(jobs, proxy, (d,n)=>{
+      fill.style.width = Math.round(d/n*100) + "%";
+      status.textContent = `Loading ${d} of ${n}…`;
+    });
+  }catch(err){
+    btn.disabled = false; bar.style.display = "none";
+    status.textContent = "Couldn't reach NHL.com. Use the spreadsheet upload below.";
+    toast("NHL.com request failed.");
+    return;
+  }
+
+  const map = new Map();
+  // Prospects and draftees first, so live rosters overwrite them.
+  res.out.filter(r=>r.job.kind==="prospect").forEach(r=> addRosterPeople(map, r.data, r.job.team, "prospect"));
+  res.out.filter(r=>r.job.kind==="draft26").forEach(r=>{
+    (r.data.picks || []).forEach(p=>{
+      const name = (dn(p.firstName) + " " + dn(p.lastName)).trim();
+      if(!name) return;
+      const key = "d26-" + name.toLowerCase().replace(/[^a-z]+/g,"-");
+      if(map.has(key)) return;
+      map.set(key, {
+        id: key, name: name, team: p.teamAbbrev || "",
+        pos: POS_MAP[p.positionCode] || p.positionCode || "—",
+        cat: bucket(p.positionCode), src: "draft26"
+      });
+    });
+  });
+  res.out.filter(r=>r.job.kind==="roster").forEach(r=> addRosterPeople(map, r.data, r.job.team, "roster"));
+
+  const players = Array.from(map.values()).sort((a,b)=>a.name.localeCompare(b.name));
+  if(!players.length){
+    btn.disabled = false; bar.style.display = "none";
+    status.textContent = "NHL.com returned no players. Use the spreadsheet upload below.";
+    return;
+  }
+
+  S.players = players;
+  S.picks = S.picks.map(pid => (pid && map.has(pid)) ? pid : null);
+  S.order = S.order.filter(i => S.picks[i]);
+  save(); renderAll();
+
+  bar.style.display = "none"; btn.disabled = false;
+  const b = {F:0,D:0,G:0}; players.forEach(p=>b[p.cat]++);
+  const warn = res.fails.length ? ` ${res.fails.length} request(s) failed: ${res.fails.join(", ")}.` : "";
+  document.getElementById("loadStatus").textContent =
+    `${players.length} players loaded — ${b.F} F, ${b.D} D, ${b.G} G.` + warn;
+  toast(`${players.length} players loaded from NHL.com.`);
+}
+
+/* ---------------- file import ---------------- */
+const NAME_KEYS  = ["player","player name","name","full name","playername","skater","goalie"];
+const FIRST_KEYS = ["first","first name","firstname","fname"];
+const LAST_KEYS  = ["last","last name","lastname","lname","surname"];
+const TEAM_KEYS  = ["team","nhl team","nhl","tm","team abbr","abbr","abbreviation","club","teamabbrev"];
+const POS_KEYS   = ["pos","position","positions","pos.","eligible","elig","primary position"];
+
+function pickKey(headers, wanted){
+  const norm = h => String(h).trim().toLowerCase().replace(/[_.]/g," ").replace(/\s+/g," ");
+  for(const w of wanted){ const f = headers.find(h=>norm(h)===w); if(f) return f; }
+  for(const w of wanted){ const f = headers.find(h=>norm(h).includes(w)); if(f) return f; }
+  return null;
+}
+function ingest(rows){
+  if(!rows.length){ toast("That file had no rows."); return; }
+  const headers = Object.keys(rows[0]);
+  const kName = pickKey(headers, NAME_KEYS);
+  const kFirst= pickKey(headers, FIRST_KEYS);
+  const kLast = pickKey(headers, LAST_KEYS);
+  const kTeam = pickKey(headers, TEAM_KEYS);
+  const kPos  = pickKey(headers, POS_KEYS);
+  if(!kName && !(kFirst && kLast)){
+    toast("Couldn't find a name column. Add a header called Player or Name.");
+    return;
+  }
+  const seen = new Set(); const out = [];
+  rows.forEach((r,ix)=>{
+    let nm = kName ? String(r[kName]||"").trim()
+                   : (String(r[kFirst]||"").trim()+" "+String(r[kLast]||"").trim()).trim();
+    if(!nm) return;
+    const tm  = kTeam ? String(r[kTeam]||"").trim().toUpperCase() : "";
+    const pos = kPos  ? String(r[kPos]||"").trim().toUpperCase().replace(/\s*,\s*/g,",") : "";
+    let id = (nm+"|"+tm).toLowerCase();
+    while(seen.has(id)) id += "*";
+    seen.add(id);
+    out.push({ id, name:nm, team:tm, pos:pos||"—", cat:bucket(pos), src:"file" });
+  });
+  S.players = out;
+  S.picks = S.picks.map(pid => (pid && out.some(p=>p.id===pid)) ? pid : null);
+  S.order = S.order.filter(i=>S.picks[i]);
+  save(); renderAll();
+  const b = {F:0,D:0,G:0}; out.forEach(p=>b[p.cat]++);
+  toast(`${out.length} players loaded — ${b.F} F, ${b.D} D, ${b.G} G.`);
+}
+function parseDelimited(text){
+  const delim = text.indexOf("\t")>-1 && text.indexOf("\t") < (text.indexOf(",")>-1?text.indexOf(","):1e9) ? "\t" : ",";
+  const rows=[]; let cur=[], val="", q=false;
+  for(let i=0;i<text.length;i++){
+    const ch=text[i];
+    if(q){
+      if(ch === '"'){ if(text[i+1]==='"'){ val+='"'; i++; } else q=false; }
+      else val+=ch;
+    }else{
+      if(ch === '"') q=true;
+      else if(ch === delim){ cur.push(val); val=""; }
+      else if(ch === "\n"){ cur.push(val); rows.push(cur); cur=[]; val=""; }
+      else if(ch !== "\r") val+=ch;
+    }
+  }
+  if(val.length||cur.length){ cur.push(val); rows.push(cur); }
+  const head = (rows.shift()||[]).map(h=>h.trim());
+  return rows.filter(r=>r.some(c=>String(c).trim()))
+             .map(r=>{ const o={}; head.forEach((h,i)=>o[h]=r[i]==null?"":r[i]); return o; });
+}
+function handleFile(file){
+  if(!file) return;
+  const isCsv = /\.(csv|tsv|txt)$/i.test(file.name);
+  const rdr = new FileReader();
+  rdr.onerror = ()=>toast("Couldn't read that file.");
+  if(isCsv || typeof XLSX === "undefined"){
+    rdr.onload = e => { try{ ingest(parseDelimited(String(e.target.result))); }
+                        catch(err){ toast("Couldn't parse that file. Try saving it as CSV."); } };
+    rdr.readAsText(file);
+  }else{
+    rdr.onload = e => {
+      try{
+        const wb = XLSX.read(new Uint8Array(e.target.result), {type:"array"});
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        ingest(XLSX.utils.sheet_to_json(ws, {defval:""}));
+      }catch(err){ toast("Couldn't read that workbook. Try saving it as CSV."); }
+    };
+    rdr.readAsArrayBuffer(file);
+  }
+}
+
+/* ---------------- export ---------------- */
+function resultRows(){
+  const rows = [["Pick","Round","Slot","Team","Player","NHL Team","Position","F/D/G"]];
+  S.picks.forEach((pid,i)=>{
+    const p = pid?playerById(pid):null;
+    rows.push([ i+1, roundOf(i), slotOf(i), teamByCode(S.board[i]).name,
+                p?p.name:"", p?p.team:"", p?p.pos:"", p?p.cat:"" ]);
+  });
+  return rows;
+}
+function rosterRows(){
+  const rows = [["Team","Slot","Pick","Player","NHL Team","Position","F/D/G"]];
+  S.teams.forEach(t=>{
+    let n=0;
+    S.board.forEach((code,i)=>{
+      if(code!==t.code) return;
+      n++; const pid=S.picks[i], p=pid?playerById(pid):null;
+      rows.push([t.name, n, i+1, p?p.name:"", p?p.team:"", p?p.pos:"", p?p.cat:""]);
+    });
+    const c = counts(t.code);
+    rows.push([t.name,"Totals","",`F ${c.F}`,`D ${c.D}`,`G ${c.G}`,`${c.total} of ${ownedCount(t.code)}`]);
+  });
+  return rows;
+}
+function poolRows(){
+  const taken = new Set(S.picks.filter(Boolean));
+  const rows = [["Player","NHL Team","Position","F/D/G","Source","Status"]];
+  S.players.forEach(p=>rows.push([p.name,p.team,p.pos,p.cat,SRC_LABEL[p.src]||"",taken.has(p.id)?"Drafted":"Available"]));
+  return rows;
+}
+function toTSV(rows){ return rows.map(r=>r.join("\t")).join("\n"); }
+function toCSV(rows){
+  return rows.map(r=>r.map(c=>{
+    const s=String(c==null?"":c);
+    return /[",\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s;
+  }).join(",")).join("\n");
+}
+function copyText(txt, label){
+  const done = ()=>toast(label+" copied — paste straight into Sheets.");
+  if(navigator.clipboard && window.isSecureContext){
+    navigator.clipboard.writeText(txt).then(done, ()=>fallbackCopy(txt,done));
+  } else fallbackCopy(txt,done);
+}
+function fallbackCopy(txt,done){
+  const ta=document.createElement("textarea");
+  ta.value=txt; ta.style.position="fixed"; ta.style.opacity="0";
+  document.body.appendChild(ta); ta.select();
+  try{ document.execCommand("copy"); done(); }catch(e){ toast("Copy blocked — use the CSV download instead."); }
+  document.body.removeChild(ta);
+}
+function download(name, text, mime){
+  const b = new Blob([text], {type: mime || "text/plain;charset=utf-8"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(b); a.download = name;
+  document.body.appendChild(a); a.click();
+  setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 400);
+}
+
+/* ---------------- wiring ---------------- */
+document.querySelectorAll(".tab").forEach(t=>{
+  t.addEventListener("click",()=>{
+    document.querySelectorAll(".tab").forEach(x=>x.classList.remove("on"));
+    document.querySelectorAll(".view").forEach(x=>x.classList.remove("on"));
+    t.classList.add("on");
+    document.getElementById("v-"+t.dataset.v).classList.add("on");
+  });
+});
+
+const search = document.getElementById("search");
+search.addEventListener("input", runSearch);
+search.addEventListener("focus", runSearch);
+search.addEventListener("blur", ()=>setTimeout(closeResults,120));
+search.addEventListener("keydown", e=>{
+  if(e.key==="ArrowDown"){ e.preventDefault(); resSel=Math.min(resSel+1,resList.length-1); drawResults(); }
+  else if(e.key==="ArrowUp"){ e.preventDefault(); resSel=Math.max(resSel-1,0); drawResults(); }
+  else if(e.key==="Enter"){ e.preventDefault(); if(resList[resSel]) pickFromSearch(resList[resSel].id); }
+  else if(e.key==="Escape"){ closeResults(); search.blur(); }
+});
+
+document.querySelectorAll("[data-bv]").forEach(b=>{
+  b.addEventListener("click", ()=>{ S.boardView = b.dataset.bv; save(); applyBoardView(); scrollToActive(); });
+});
+document.getElementById("btnJump").addEventListener("click", ()=>scrollToActive("center"));
+addEventListener("resize", ()=>{ if(!S.boardView) applyBoardView(); });
+
+document.getElementById("btnStart").addEventListener("click",()=>{
+  if(clock.between){ clock.between=false; resetClock(true); return; }
+  clock.running = !clock.running;
+  if(clock.running) startTick(); else stopTick();
+  drawClock();
+});
+document.getElementById("btnResetClock").addEventListener("click",()=>resetClock(false));
+document.getElementById("btnUndo").addEventListener("click", undo);
+document.getElementById("btnClearPick").addEventListener("click",()=>{
+  clearPick(S.active); toast(`Pick ${S.active+1} cleared.`);
+});
+document.getElementById("btnCopy").addEventListener("click",()=>copyText(toTSV(resultRows()),"Draft results"));
+document.getElementById("btnCopyTeams").addEventListener("click",()=>copyText(toTSV(rosterRows()),"Rosters"));
+document.getElementById("btnCsvTeams").addEventListener("click",()=>download("draft-rosters.csv",toCSV(rosterRows()),"text/csv"));
+document.getElementById("btnCsvAll").addEventListener("click",()=>download("draft-results.csv",toCSV(resultRows()),"text/csv"));
+
+["poolSearch","poolPos","poolAvail","poolSrc"].forEach(id=>
+  document.getElementById(id).addEventListener("input", renderPool));
+
+document.getElementById("btnFetchNhl").addEventListener("click", fetchFromNhl);
+document.getElementById("btnPoolCsv").addEventListener("click",()=>{
+  if(!S.players.length){ toast("Load the player list first."); return; }
+  download("nhl-player-pool.csv", toCSV(poolRows()), "text/csv");
+});
+document.getElementById("fileIn").addEventListener("change",e=>{
+  handleFile(e.target.files[0]); e.target.value="";
+});
+document.getElementById("btnClearPlayers").addEventListener("click",()=>{
+  if(!confirm("Remove the loaded player list? Picks already made will be cleared too.")) return;
+  S.players=[]; S.picks=new Array(TOTAL).fill(null); S.order=[]; S.active=0;
+  save(); renderAll(); toast("Player list removed.");
+});
+document.getElementById("btnResetDraft").addEventListener("click",()=>{
+  if(!confirm("Clear every pick? Teams, colours and the player list stay.")) return;
+  S.picks=new Array(TOTAL).fill(null); S.order=[]; S.active=0;
+  save(); renderAll(); resetClock(false); toast("All picks cleared.");
+});
+
+document.getElementById("cfgPick").addEventListener("change",e=>{
+  S.cfg.pick = Math.max(10, Math.min(600, +e.target.value||90)); e.target.value=S.cfg.pick;
+  if(!clock.running && !clock.between) clock.left = S.cfg.pick;
+  save(); drawClock();
+});
+document.getElementById("cfgDelay").addEventListener("change",e=>{
+  S.cfg.delay = Math.max(0, Math.min(60, +e.target.value||0)); e.target.value=S.cfg.delay; save();
+});
+document.getElementById("cfgAuto").addEventListener("change",e=>{ S.cfg.auto=e.target.checked; save(); });
+document.getElementById("cfgBeep").addEventListener("change",e=>{ S.cfg.beep=e.target.checked; save(); });
+
+document.getElementById("btnSaveJson").addEventListener("click",()=>{
+  download("draft-backup.json", JSON.stringify(S,null,1), "application/json");
+});
+document.getElementById("jsonIn").addEventListener("change",e=>{
+  const f=e.target.files[0]; if(!f) return;
+  const r=new FileReader();
+  r.onload=ev=>{
+    try{
+      const d=JSON.parse(String(ev.target.result));
+      if(!d.board || d.board.length!==TOTAL) throw 0;
+      S = Object.assign(S, d);
+      if(!S.picks || S.picks.length!==TOTAL) S.picks=new Array(TOTAL).fill(null);
+      save(); renderAll(); resetClock(false); toast("Backup restored.");
+    }catch(err){ toast("That file isn't a draft backup."); }
+  };
+  r.readAsText(f); e.target.value="";
+});
+
+document.addEventListener("keydown", e=>{
+  if(e.target.tagName==="INPUT"||e.target.tagName==="SELECT") return;
+  if(e.key==="/"){ e.preventDefault(); search.focus(); }
+  if(e.key===" "){ e.preventDefault(); document.getElementById("btnStart").click(); }
+  if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==="z"){ e.preventDefault(); undo(); }
+});
+
+/* ---------------- boot ---------------- */
+load();
+clock.left = S.cfg.pick;
+if(!S.picks.some(Boolean)) S.active = 0; else S.active = firstOpen()===-1 ? TOTAL-1 : firstOpen();
+renderAll();
+drawClock();
+scrollToActive();
+</script>
+</body>
+</html>
