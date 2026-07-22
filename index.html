@@ -1333,6 +1333,10 @@ if(!S.picks.some(Boolean)) S.active = 0; else S.active = firstOpen()===-1 ? TOTA
 renderAll();
 drawClock();
 scrollToActive();
+// First run (nothing saved yet): pull the live NHL.com pool as the default.
+// Anything the user loads afterward — a fresh fetch, a spreadsheet, a
+// restored backup — persists to localStorage and overrides this.
+if(!S.players.length) fetchFromNhl();
 </script>
 </body>
 </html>
