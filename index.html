@@ -468,8 +468,10 @@ table.owners select{width:100%;padding:4px 4px;font-size:11px;font-family:var(--
         <summary style="cursor:pointer;color:var(--muted);font-size:12.5px">Upload a spreadsheet instead</summary>
         <p class="help" style="margin-top:10px">One row per player. Headers are matched loosely — a name column
           (<em>Player</em>, <em>Name</em>, or <em>First</em> + <em>Last</em>), a team column, a position column, and
-          optionally a rank column (<em>Rank</em>, <em>Yahoo Rank</em>, <em>Overall</em>…) — e.g. Yahoo's 2026-27
-          preseason rankings — used to order the draft picker and player pool.</p>
+          optionally a rank column (<em>Rank</em>, <em>Yahoo Rank</em>, <em>Overall</em>…). If your workbook has
+          multiple tabs, a sheet literally named <em>All</em> is used automatically. The picker and player pool
+          always sort alphabetically by last name, regardless of rank — so a screen-visible draft board never
+          gives away your priority order — but each player's rank still shows for your own reference.</p>
         <div class="btnrow">
           <input type="file" id="fileIn" accept=".xlsx,.xls,.csv,.tsv" style="padding:6px">
           <button id="btnClearPlayers" class="danger">Remove all players</button>
@@ -920,7 +922,7 @@ function renderPool(){
     if(av==="avail" && taken.has(p.id)) return false;
     if(av==="taken" && !taken.has(p.id)) return false;
     return true;
-  }).sort(byRank);
+  }).sort(byLastName);
   document.getElementById("poolCount").textContent = S.players.length;
   document.getElementById("poolAvailCount").textContent = S.players.length - taken.size;
   const idxOf = {};
@@ -1008,11 +1010,11 @@ function renderAll(){
 
 /* ---------------- search ---------------- */
 let resSel = 0, resList = [], posFilter = "";
-/* Lower rank number = better, per Yahoo's convention. Unranked players sort last. */
-function byRank(a,b){
-  const ar = a.rank==null ? Infinity : a.rank, br = b.rank==null ? Infinity : b.rank;
-  return (ar-br) || a.name.localeCompare(b.name);
-}
+/* Always sorted by last name, never by rank/points — an uploaded ranking
+   can stay attached to each player (shown, exported) without the list
+   order itself broadcasting your draft priorities to onlookers. */
+function lastName(n){ const parts = String(n||"").trim().split(/\s+/); return parts[parts.length-1] || n; }
+function byLastName(a,b){ return lastName(a.name).localeCompare(lastName(b.name)) || a.name.localeCompare(b.name); }
 function posCounts(){
   const taken = new Set(S.picks.filter(Boolean));
   const c = {ALL:{avail:0,total:0}, F:{avail:0,total:0}, D:{avail:0,total:0}, G:{avail:0,total:0}};
@@ -1049,10 +1051,10 @@ function runSearch(){
       const ai=a.name.toLowerCase().indexOf(q), bi=b.name.toLowerCase().indexOf(q);
       const al=a.name.toLowerCase().split(" ").slice(-1)[0].startsWith(q)?0:1;
       const bl=b.name.toLowerCase().split(" ").slice(-1)[0].startsWith(q)?0:1;
-      return (al-bl) || (ai-bi) || byRank(a,b);
+      return (al-bl) || (ai-bi) || byLastName(a,b);
     });
   }else{
-    list = list.slice().sort(byRank);
+    list = list.slice().sort(byLastName);
   }
   resList = list.slice(0,60); resSel = 0; drawResults();
   renderPosTabs();
@@ -1222,7 +1224,7 @@ const NAME_KEYS  = ["player","player name","name","full name","playername","skat
 const FIRST_KEYS = ["first","first name","firstname","fname"];
 const LAST_KEYS  = ["last","last name","lastname","lname","surname"];
 const TEAM_KEYS  = ["team","nhl team","nhl","tm","team abbr","abbr","abbreviation","club","teamabbrev"];
-const POS_KEYS   = ["pos","position","positions","pos.","eligible","elig","primary position"];
+const POS_KEYS   = ["pos","position","positions","pos.","eligible","elig","primary position","nhlpos"];
 const RANK_KEYS  = ["rank","overall rank","ovr rank","yahoo rank","ovr","rk","overall","ranking","preseason rank"];
 
 function pickKey(headers, wanted){
@@ -1264,7 +1266,7 @@ function ingest(rows){
   S.order = S.order.filter(i=>S.picks[i]);
   save(); renderAll();
   const b = {F:0,D:0,G:0}; out.forEach(p=>b[p.cat]++);
-  const rankNote = ranked ? ` Sorted by rank (${ranked} ranked).` : "";
+  const rankNote = ranked ? ` ${ranked} carry a rank (shown, not used for sorting).` : "";
   toast(`${out.length} players loaded — ${b.F} F, ${b.D} D, ${b.G} G.${rankNote}`);
 }
 function parseDelimited(text){
@@ -1300,7 +1302,10 @@ function handleFile(file){
     rdr.onload = e => {
       try{
         const wb = XLSX.read(new Uint8Array(e.target.result), {type:"array"});
-        const ws = wb.Sheets[wb.SheetNames[0]];
+        /* Prefer a sheet literally named "All" (common in ranking workbooks
+           with per-position tabs) over whichever sheet happens to be first. */
+        const sheetName = wb.SheetNames.find(n=>n.trim().toLowerCase()==="all") || wb.SheetNames[0];
+        const ws = wb.Sheets[sheetName];
         ingest(XLSX.utils.sheet_to_json(ws, {defval:""}));
       }catch(err){ toast("Couldn't read that workbook. Try saving it as CSV."); }
     };
@@ -1335,7 +1340,7 @@ function rosterRows(){
 function poolRows(){
   const taken = new Set(S.picks.filter(Boolean));
   const rows = [["Rank","Player","NHL Team","Position","F/D/G","Source","Status"]];
-  S.players.slice().sort(byRank).forEach(p=>rows.push([p.rank==null?"":p.rank,p.name,p.team,p.pos,p.cat,SRC_LABEL[p.src]||"",taken.has(p.id)?"Drafted":"Available"]));
+  S.players.slice().sort(byLastName).forEach(p=>rows.push([p.rank==null?"":p.rank,p.name,p.team,p.pos,p.cat,SRC_LABEL[p.src]||"",taken.has(p.id)?"Drafted":"Available"]));
   return rows;
 }
 function toTSV(rows){ return rows.map(r=>r.join("\t")).join("\n"); }
