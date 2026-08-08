@@ -191,7 +191,7 @@ table.board td.rh{position:sticky;left:0;background:var(--panel);z-index:1;
   border-right:1px solid var(--rule);width:44px}
 .cell{padding:3px}
 .pk{
-  border-radius:10px;padding:6px 7px;min-height:52px;cursor:pointer;position:relative;
+  border-radius:10px;padding:6px 7px;height:58px;cursor:pointer;position:relative;
   display:flex;flex-direction:column;justify-content:space-between;
   border:1px solid rgba(255,255,255,.08);transition:transform .1s,box-shadow .1s;
 }
@@ -274,7 +274,7 @@ table.owners select{width:100%;padding:4px 4px;font-size:11px;font-family:var(--
   letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
 .rnd:first-child{border-top:none}
 .lrow{display:grid;grid-template-columns:34px 28px 1fr auto;gap:10px;align-items:center;
-  padding:9px 14px;border-bottom:1px solid var(--rule-soft);cursor:pointer}
+  height:60px;padding:0 14px;border-bottom:1px solid var(--rule-soft);cursor:pointer}
 .lrow:last-child{border-bottom:none}
 .lrow:hover{background:#20262F}
 .lrow.open .lplr{color:var(--dim)}
@@ -295,7 +295,7 @@ table.owners select{width:100%;padding:4px 4px;font-size:11px;font-family:var(--
 
 @media (max-width:900px){
   table.board{min-width:900px}
-  .pk{min-height:46px;padding:5px}
+  .pk{height:52px;padding:5px}
   .pk .plr{font-size:11px}
   #teamgrid{grid-template-columns:repeat(auto-fill,minmax(min(100%,280px),1fr))}
 }
@@ -361,7 +361,7 @@ table.owners select{width:100%;padding:4px 4px;font-size:11px;font-family:var(--
   #onclock .tname{font-size:14px}
   .lrow{grid-template-columns:28px 24px 1fr;gap:8px}
   .lrow .avatar{width:24px;height:24px;font-size:8.5px}
-  .lmeta{grid-column:3;text-align:left;padding-top:1px}
+  .lmeta{display:none}
 }
 </style>
 </head>
