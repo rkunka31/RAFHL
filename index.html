@@ -7,18 +7,18 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700;800;900&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
 <style>
 :root{
-  --bg:#12151A;
-  --panel:#1A1F27;
-  --panel-2:#20262F;
-  --rule:#2C333E;
-  --rule-soft:#232932;
-  --text:#E8EDF3;
-  --muted:#8D97A5;
-  --dim:#5C6674;
-  --ice:#6FCBEF;
+  --bg:#0D1117;
+  --panel:#161B24;
+  --panel-2:#1D2430;
+  --rule:#2A3140;
+  --rule-soft:#212836;
+  --text:#F1F4F8;
+  --muted:#8993A6;
+  --dim:#57607A;
+  --ice:#26E5B8;
   --warn:#F2B035;
   --bad:#F0574B;
   --good:#5BD68A;
@@ -27,7 +27,7 @@
   --radius-lg:20px;
   --radius-pill:999px;
   --mono:"JetBrains Mono",ui-monospace,"SF Mono",Menlo,Consolas,"Roboto Mono",monospace;
-  --sans:"Manrope",-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+  --sans:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
 }
 *{box-sizing:border-box}
 html,body{margin:0;padding:0;height:100%}
@@ -46,8 +46,8 @@ button:hover{background:#2A313C;border-color:#3B444F}
 button:active{transform:translateY(1px) scale(.98)}
 button:disabled{opacity:.35;cursor:not-allowed}
 button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--ice);outline-offset:1px}
-button.primary{background:var(--ice);border-color:var(--ice);color:#0B1116;font-weight:800}
-button.primary:hover{background:#8DD9F5}
+button.primary{background:var(--ice);border-color:var(--ice);color:#06231C;font-weight:800}
+button.primary:hover{background:#63EFCB}
 button.ghost{background:transparent}
 button.danger{border-color:#4A2A28;color:#F09189}
 button.danger:hover{background:#2E1D1C}
@@ -64,8 +64,12 @@ input::placeholder{color:var(--dim);font-weight:500}
 .bar-block{padding:10px 16px;border-right:1px solid var(--rule-soft);display:flex;
   flex-direction:column;justify-content:center;gap:2px;min-height:66px}
 .eyebrow{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim);font-weight:800}
-#onclock{flex:1;min-width:220px;position:relative;overflow:hidden}
-#onclock .swatch{position:absolute;left:0;top:0;bottom:0;width:6px;border-radius:0 3px 3px 0}
+.avatar{border-radius:50%;display:flex;align-items:center;justify-content:center;
+  font-weight:800;letter-spacing:.01em;flex:none;box-shadow:inset 0 0 0 1px rgba(255,255,255,.14)}
+#onclock{flex:1;min-width:240px;overflow:hidden}
+#onclock .ocRow{display:flex;align-items:center;gap:12px;height:100%}
+#onclock .avatar{width:38px;height:38px;font-size:12px}
+#onclock .ocText{min-width:0;flex:1}
 #onclock .tname{font-size:18px;font-weight:800;letter-spacing:-.02em;line-height:1.2}
 #onclock .meta{font-size:11.5px;color:var(--muted);font-weight:600}
 #onclock .roster{font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:.03em;font-weight:600}
@@ -76,7 +80,7 @@ input::placeholder{color:var(--dim);font-weight:500}
   font-family:var(--mono);font-size:40px;line-height:1;font-weight:800;
   letter-spacing:.01em;color:var(--text);font-variant-numeric:tabular-nums;
   padding:2px 10px;border-radius:var(--radius-sm);
-  text-shadow:0 0 22px rgba(111,203,239,.22);
+  text-shadow:0 0 22px rgba(38,229,184,.22);
 }
 #clock.warn{color:var(--warn);text-shadow:0 0 22px rgba(242,176,53,.28)}
 #clock.crit{color:var(--bad);text-shadow:0 0 26px rgba(240,87,75,.4);animation:pulse 1s steps(2,end) infinite}
@@ -113,7 +117,7 @@ main{flex:1;padding:16px 16px calc(96px + env(safe-area-inset-bottom)) 16px;max-
   box-shadow:0 -8px 24px rgba(0,0,0,.35);
   border-radius:var(--radius-lg) var(--radius-lg) 0 0;
 }
-#pickerTrigger .ptSwatch{width:5px;align-self:stretch;border-radius:var(--radius-pill);flex:none}
+#pickerTrigger .avatar{width:32px;height:32px;font-size:11px}
 #pickerTrigger .ptIcon{color:var(--muted);flex:none;display:flex;align-items:center}
 #pickerTrigger .ptBody{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px;align-items:flex-start}
 #pickerTrigger .ptLabel{font-size:14px;font-weight:800;letter-spacing:-.01em}
@@ -200,7 +204,7 @@ table.board td.rh{position:sticky;left:0;background:var(--panel);z-index:1;
 .pk .sub{font-family:var(--mono);font-size:9.5px;font-weight:700;opacity:.8;letter-spacing:.04em}
 .pk.open{opacity:.5}
 .pk.active{outline:2.5px solid var(--ice);outline-offset:1px;opacity:1;
-  box-shadow:0 0 0 5px rgba(111,203,239,.14)}
+  box-shadow:0 0 0 5px rgba(38,229,184,.16)}
 
 /* ---------- Teams view ---------- */
 #teamgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
@@ -269,14 +273,14 @@ table.owners select{width:100%;padding:4px 4px;font-size:11px;font-family:var(--
   border-top:1px solid var(--rule);padding:6px 14px;font-size:10px;font-weight:800;
   letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
 .rnd:first-child{border-top:none}
-.lrow{display:grid;grid-template-columns:34px 4px 1fr auto;gap:10px;align-items:center;
-  padding:10px 14px;border-bottom:1px solid var(--rule-soft);cursor:pointer}
+.lrow{display:grid;grid-template-columns:34px 28px 1fr auto;gap:10px;align-items:center;
+  padding:9px 14px;border-bottom:1px solid var(--rule-soft);cursor:pointer}
 .lrow:last-child{border-bottom:none}
 .lrow:hover{background:#20262F}
 .lrow.open .lplr{color:var(--dim)}
-.lrow.active{background:rgba(111,203,239,.11);box-shadow:inset 3px 0 0 var(--ice)}
-.lno{font-size:11px;font-weight:700;color:var(--dim);text-align:right}
-.ldot{align-self:stretch;border-radius:var(--radius-pill);min-height:28px}
+.lrow.active{background:rgba(38,229,184,.12);box-shadow:inset 3px 0 0 var(--ice)}
+.lno{font-family:var(--mono);font-size:11px;font-weight:700;color:var(--dim);text-align:right}
+.lrow .avatar{width:28px;height:28px;font-size:9.5px}
 .lmain{min-width:0}
 .lteam{display:block;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);
   font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -303,8 +307,10 @@ table.owners select{width:100%;padding:4px 4px;font-size:11px;font-family:var(--
   .tab{padding:11px 13px;font-size:13.5px}
   .bar-block{min-height:0;padding:8px 12px;border-right:none}
   .bar-block .eyebrow{font-size:9px}
-  #onclock{flex:1 1 55%;min-width:0;padding-left:14px;border-bottom:1px solid var(--rule-soft)}
+  #onclock{flex:1 1 55%;min-width:0;border-bottom:1px solid var(--rule-soft)}
   #onclock .eyebrow{display:none}
+  #onclock .avatar{width:30px;height:30px;font-size:10px}
+  #onclock .ocRow{gap:9px}
   #onclock .tname{font-size:15px}
   #onclock .meta{font-size:10.5px;line-height:1.3}
   #onclock .roster{display:block}
@@ -353,7 +359,8 @@ table.owners select{width:100%;padding:4px 4px;font-size:11px;font-family:var(--
 @media (max-width:420px){
   #clock{font-size:27px}
   #onclock .tname{font-size:14px}
-  .lrow{grid-template-columns:28px 4px 1fr;gap:8px}
+  .lrow{grid-template-columns:28px 24px 1fr;gap:8px}
+  .lrow .avatar{width:24px;height:24px;font-size:8.5px}
   .lmeta{grid-column:3;text-align:left;padding-top:1px}
 }
 </style>
@@ -362,10 +369,14 @@ table.owners select{width:100%;padding:4px 4px;font-size:11px;font-family:var(--
 
 <div id="bar">
   <div class="bar-block" id="onclock">
-    <div class="swatch" id="ocSwatch"></div>
-    <div class="eyebrow" id="ocEyebrow">On the clock</div>
-    <div class="tname" id="ocName">—</div>
-    <div class="meta"><span id="ocMeta"></span> <span class="roster" id="ocRoster"></span></div>
+    <div class="ocRow">
+      <div class="avatar" id="ocAvatar"></div>
+      <div class="ocText">
+        <div class="eyebrow" id="ocEyebrow">On the clock</div>
+        <div class="tname" id="ocName">—</div>
+        <div class="meta"><span id="ocMeta"></span> <span class="roster" id="ocRoster"></span></div>
+      </div>
+    </div>
   </div>
   <div class="bar-block" id="clockblock">
     <div class="eyebrow">Time remaining</div>
@@ -526,7 +537,7 @@ table.owners select{width:100%;padding:4px 4px;font-size:11px;font-family:var(--
 
 <div id="pickerScrim"></div>
 <div id="pickerTrigger" role="button" tabindex="0" aria-label="Search players to draft">
-  <span class="ptSwatch" id="ptSwatch"></span>
+  <span class="avatar" id="ptAvatar"></span>
   <span class="ptIcon"><span class="searchGlyph" aria-hidden="true"></span></span>
   <span class="ptBody">
     <span class="ptLabel" id="ptLabel">Draft a player</span>
@@ -790,7 +801,8 @@ function undo(){
 /* ---------------- render: on the clock ---------------- */
 function renderBar(){
   const i = S.active, t = teamByCode(S.board[i]);
-  document.getElementById("ocSwatch").style.background = t.color;
+  const ocAv = document.getElementById("ocAvatar");
+  ocAv.style.background = t.color; ocAv.style.color = ink(t.color); ocAv.textContent = t.code;
   const done = S.picks.filter(Boolean).length;
   document.getElementById("ocEyebrow").textContent =
     done >= TOTAL ? "Draft complete" : "On the clock";
@@ -805,7 +817,8 @@ function renderBar(){
 function renderTrigger(){
   const i = S.active, t = teamByCode(S.board[i]);
   const done = S.picks.filter(Boolean).length;
-  document.getElementById("ptSwatch").style.background = t.color;
+  const ptAv = document.getElementById("ptAvatar");
+  ptAv.style.background = t.color; ptAv.style.color = ink(t.color); ptAv.textContent = t.code;
   document.getElementById("ptLabel").textContent = done >= TOTAL ? "Draft complete" : `Draft for ${t.name}`;
   document.getElementById("ptSub").textContent = `Pick ${i+1} of ${TOTAL} · Round ${roundOf(i)}, slot ${slotOf(i)}`;
 }
@@ -824,7 +837,7 @@ function renderBoard(){
       const cls = "pk" + (p ? "" : " open") + (i===S.active ? " active" : "");
       h += `<td class='cell'><div class='${cls}' data-i='${i}' style="background:${t.color};color:${fg}">
         <div style="display:flex;justify-content:space-between;gap:6px">
-          <span class='no'>${i+1}</span><span class='who'>${esc(shortName(t.name))}</span>
+          <span class='no'>${roundOf(i)}.${slotOf(i)}</span><span class='who'>${esc(shortName(t.name))}</span>
         </div>
         ${ p ? `<div><div class='plr'>${esc(p.name)}</div>
                  <div class='sub'>${esc(p.team)} · ${esc(p.pos)}</div></div>`
@@ -852,8 +865,8 @@ function renderList(){
     for(let sl=0;sl<SLOTS;sl++){
       const i = r*SLOTS+sl, t = teamByCode(S.board[i]), pid = S.picks[i], p = pid?playerById(pid):null;
       h += `<div class="lrow ${p?"":"open"} ${i===S.active?"active":""}" data-i="${i}">
-        <span class="lno mono">${i+1}</span>
-        <span class="ldot" style="background:${t.color}"></span>
+        <span class="lno mono">${roundOf(i)}.${slotOf(i)}</span>
+        <span class="avatar" style="background:${t.color};color:${ink(t.color)}">${esc(t.code)}</span>
         <span class="lmain">
           <span class="lteam">${esc(t.name)}</span>
           <span class="lplr">${p ? esc(p.name) : (i===S.active ? "On the clock" : "—")}</span>
