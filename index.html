@@ -183,9 +183,12 @@ main{flex:1;padding:16px 16px calc(96px + env(safe-area-inset-bottom)) 16px;max-
 .boardwrap{overflow-x:auto;border:1px solid var(--rule);border-radius:var(--radius-md);background:var(--panel)}
 table.board{border-collapse:separate;border-spacing:0;width:100%;min-width:1180px;table-layout:fixed}
 table.board th{position:sticky;top:0;background:var(--panel);z-index:2;
-  font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);
-  font-weight:800;padding:9px 6px;border-bottom:1px solid var(--rule);text-align:center}
+  font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);
+  font-weight:800;padding:9px 6px;border-bottom:1px solid var(--rule);text-align:center;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 table.board th.rh{left:0;z-index:3;width:44px}
+.slotDot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px;
+  vertical-align:middle;box-shadow:inset 0 0 0 1px rgba(255,255,255,.25)}
 table.board td.rh{position:sticky;left:0;background:var(--panel);z-index:1;
   font-family:var(--mono);font-size:11px;font-weight:700;color:var(--dim);text-align:center;
   border-right:1px solid var(--rule);width:44px}
@@ -197,8 +200,6 @@ table.board td.rh{position:sticky;left:0;background:var(--panel);z-index:1;
 }
 .pk:hover{transform:translateY(-1px);box-shadow:0 4px 14px rgba(0,0,0,.45)}
 .pk .no{font-family:var(--mono);font-size:10px;font-weight:700;opacity:.72;letter-spacing:.04em}
-.pk .who{font-size:10.5px;font-weight:800;opacity:.85;letter-spacing:.03em;text-transform:uppercase;
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pk .plr{font-size:12.5px;font-weight:800;letter-spacing:-.005em;line-height:1.2;margin-top:2px;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pk .sub{font-family:var(--mono);font-size:9.5px;font-weight:700;opacity:.8;letter-spacing:.04em}
@@ -824,10 +825,28 @@ function renderTrigger(){
 }
 
 /* ---------------- render: board ---------------- */
+/* Which team owns most of a slot's 13 picks — trades can move individual
+   picks around, so no single round is a reliable label for the column.
+   Ties go to whichever team was first to hold the slot (round 1 onward). */
+function slotOwner(s){
+  const counts = {};
+  for(let r=0;r<ROUNDS;r++){
+    const code = S.board[r*SLOTS+s];
+    counts[code] = (counts[code]||0) + 1;
+  }
+  let best = null, bestN = -1;
+  for(const code of Object.keys(counts)){
+    if(counts[code] > bestN){ best = code; bestN = counts[code]; }
+  }
+  return best;
+}
 function renderBoard(){
   const tb = document.getElementById("boardTable");
   let h = "<thead><tr><th class='rh'>Rd</th>";
-  for(let s=1;s<=SLOTS;s++) h += `<th>Slot ${s}</th>`;
+  for(let s=0;s<SLOTS;s++){
+    const t = teamByCode(slotOwner(s));
+    h += `<th><span class='slotDot' style="background:${t.color}"></span>${esc(shortName(t.name))}</th>`;
+  }
   h += "</tr></thead><tbody>";
   for(let r=0;r<ROUNDS;r++){
     h += `<tr><td class='rh'>${r+1}</td>`;
@@ -836,9 +855,7 @@ function renderBoard(){
       const fg = ink(t.color);
       const cls = "pk" + (p ? "" : " open") + (i===S.active ? " active" : "");
       h += `<td class='cell'><div class='${cls}' data-i='${i}' style="background:${t.color};color:${fg}">
-        <div style="display:flex;justify-content:space-between;gap:6px">
-          <span class='no'>${roundOf(i)}.${slotOf(i)}</span><span class='who'>${esc(shortName(t.name))}</span>
-        </div>
+        <span class='no'>${roundOf(i)}.${slotOf(i)}</span>
         ${ p ? `<div><div class='plr'>${esc(p.name)}</div>
                  <div class='sub'>${esc(p.team)} · ${esc(p.pos)}</div></div>`
              : `<div class='sub' style="opacity:.5">—</div>` }
