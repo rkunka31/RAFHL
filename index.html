@@ -23,7 +23,7 @@
   --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
 }
 *{box-sizing:border-box}
-html,body{margin:0;padding:0;height:100%}
+html,body{margin:0;padding:0;height:100%;overflow-x:hidden;max-width:100%}
 body{
   background:var(--bg);color:var(--text);font-family:var(--sans);
   font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased;
@@ -53,6 +53,7 @@ input::placeholder{color:var(--dim)}
 #bar{
   display:flex;align-items:stretch;gap:0;border-bottom:1px solid var(--rule);
   background:var(--panel);position:sticky;top:0;z-index:40;flex-wrap:wrap;
+  width:100%;max-width:100%;
 }
 .bar-block{padding:10px 16px;border-right:1px solid var(--rule-soft);display:flex;
   flex-direction:column;justify-content:center;gap:2px;min-height:66px}
@@ -81,8 +82,8 @@ input::placeholder{color:var(--dim)}
 .clockctl button{padding:4px 10px;font-size:12px}
 
 /* ---------- Tabs ---------- */
-#tabs{display:flex;gap:2px;padding:0 12px;background:var(--panel);border-bottom:1px solid var(--rule);
-  position:sticky;top:66px;z-index:39;overflow-x:auto}
+#tabs{display:flex;flex-wrap:wrap;gap:2px;padding:2px 8px;background:var(--panel);
+  border-bottom:1px solid var(--rule);position:sticky;top:66px;z-index:39;width:100%;max-width:100%}
 .tab{background:none;border:none;border-bottom:2px solid transparent;border-radius:0;
   padding:10px 14px;color:var(--muted);font-size:13px;font-weight:550;white-space:nowrap}
 .tab:hover{background:none;color:var(--text)}
@@ -386,20 +387,13 @@ table.owners select{width:100%;padding:4px 4px;font-size:11px;font-family:var(--
       <button id="btnResetClock" class="ghost">Reset clock</button>
     </div>
   </div>
-  <div class="bar-block">
-    <div class="eyebrow">Board</div>
-    <div class="btnrow">
-      <button id="btnUndo">Undo last pick</button>
-      <button id="btnCopy">Copy for Sheets</button>
-    </div>
-  </div>
 </div>
 
 <div id="tabs">
   <button class="tab on" data-v="board">Draft board</button>
   <button class="tab" data-v="teams">By team</button>
   <button class="tab" data-v="pool">Player pool</button>
-  <button class="tab" data-v="myteam" id="tabMyTeam" style="display:none">★ My Team</button>
+  <button class="tab" data-v="myteam" id="tabMyTeam">★ My Team</button>
   <button class="tab" data-v="setup">Setup</button>
 </div>
 
@@ -410,7 +404,9 @@ table.owners select{width:100%;padding:4px 4px;font-size:11px;font-family:var(--
     <div id="syncStrip">
       <span id="syncDot" class="dot"></span>
       <span id="syncText">Live sync off — open Setup to connect the Google Sheet.</span>
-      <button id="btnSyncNow" class="ghost" style="margin-left:auto">Sync now</button>
+      <button id="btnUndo" class="ghost" style="margin-left:auto">Undo last pick</button>
+      <button id="btnCopy" class="ghost">Copy for Sheets</button>
+      <button id="btnSyncNow" class="ghost">Sync now</button>
     </div>
     <div id="pickBanner" class="banner hidden"></div>
     <div id="searchwrap">
@@ -480,8 +476,21 @@ table.owners select{width:100%;padding:4px 4px;font-size:11px;font-family:var(--
 
   <!-- MY TEAM -->
   <section class="view" id="v-myteam">
-    <div id="recMain"></div>
-    <div id="recAlts"></div>
+    <div id="lockGate" class="panel" style="max-width:440px;margin:24px auto;text-align:center">
+      <h2 style="justify-content:center">★ My Team — private</h2>
+      <p class="help" style="margin:0 auto 14px">Your recommendation and rankings live here. Enter your access code.
+        The commissioner sees only the live board and, on your pick, the single player to draft.</p>
+      <div class="btnrow" style="justify-content:center">
+        <input id="cfgUnlock" type="password" placeholder="Access code" style="max-width:200px">
+        <button id="btnUnlock" class="primary">Unlock</button>
+      </div>
+    </div>
+    <div id="myTeamBody" style="display:none">
+      <div class="btnrow" style="margin-bottom:12px">
+        <button id="btnLock" class="ghost">Lock &amp; hide</button>
+      </div>
+      <div id="recMain"></div>
+      <div id="recAlts"></div>
     <div class="panel" style="margin-top:14px">
       <h2>My roster</h2>
       <div id="myRoster"></div>
@@ -497,6 +506,7 @@ table.owners select{width:100%;padding:4px 4px;font-size:11px;font-family:var(--
         <label class="kv"><input id="recNeed" type="checkbox" style="margin-right:6px">Only what I need</label>
       </div>
       <div class="panel" style="padding:0;max-height:52vh;overflow:auto"><table class="data" id="rankTable"></table></div>
+    </div>
     </div>
   </section>
 
@@ -608,17 +618,6 @@ table.owners select{width:100%;padding:4px 4px;font-size:11px;font-family:var(--
         </label>
         <button id="btnCsvAll" class="ghost">Download results CSV</button>
         <button id="btnResetDraft" class="danger">Clear all picks</button>
-      </div>
-    </div>
-
-    <div class="panel">
-      <h2>My Team mode</h2>
-      <p class="help">Unlocks your private recommendation panel and rankings. Anyone without the code sees only the
-        live board and, when it's your pick, the single player to draft.</p>
-      <div class="btnrow" id="unlockRow">
-        <input id="cfgUnlock" type="password" placeholder="Access code" style="max-width:200px">
-        <button id="btnUnlock" class="primary">Unlock</button>
-        <button id="btnLock" class="ghost" style="display:none">Lock &amp; hide</button>
       </div>
     </div>
 
@@ -1562,7 +1561,7 @@ gv("btnUnlock").addEventListener("click",()=>{
   const v=gv("cfgUnlock").value.trim();
   if(v && v.toLowerCase()===UNLOCK_CODE.toLowerCase()){
     S.unlocked=true; save(); applyUnlock(); renderAll(); gv("cfgUnlock").value="";
-    toast("My Team mode unlocked."); document.getElementById("tabMyTeam").click();
+    toast("My Team mode unlocked.");
   } else toast("Wrong code.");
 });
 gv("btnLock").addEventListener("click",()=>{ S.unlocked=false; save(); applyUnlock(); toast("Locked."); });
@@ -1994,15 +1993,10 @@ function renderRankTable(rec){
 
 /* ---- unlock ---- */
 function applyUnlock(){
-  document.getElementById("tabMyTeam").style.display = S.unlocked ? "" : "none";
-  document.getElementById("btnLock").style.display = S.unlocked ? "" : "none";
-  if(!S.unlocked){
-    // if currently on myteam tab, bounce to board
-    const mt=document.getElementById("v-myteam");
-    if(mt && mt.classList.contains("on")){
-      document.querySelector('.tab[data-v="board"]').click();
-    }
-  }
+  const body = document.getElementById("myTeamBody");
+  const gate = document.getElementById("lockGate");
+  if(body) body.style.display = S.unlocked ? "" : "none";
+  if(gate) gate.style.display = S.unlocked ? "none" : "";
 }
 
 /* ---- sync config <-> inputs ---- */
