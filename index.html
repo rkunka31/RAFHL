@@ -1596,12 +1596,15 @@ gv("btnTestSheet").addEventListener("click", async ()=>{
   setSyncState("work","Testing…");
   try{
     const id=sheetIdFrom(S.sync.sheet);
-    const g=await fetchGrid(id, S.sync.tab);
-    const {r0,c0}=rangeTopLeft(S.sync.range);
-    let filled=0;
-    for(let r=0;r<ROUNDS;r++){ const row=g[r0+r]||[]; for(let c=0;c<SLOTS;c++){ if((row[c0+c]||"").trim()) filled++; } }
-    setSyncState("live",`Connected to “${S.sync.tab}” — ${g.length} rows, ${filled} names in the draft grid.`);
-    toast("Connection OK — "+filled+" names found.");
+    const res=await readDraftGrid(id);
+    const {grid,rel}=res;
+    const {r0,c0}= rel?{r0:0,c0:0}:rangeTopLeft(S.sync.range);
+    const row1=(grid[r0]||[]).slice(c0,c0+SLOTS).map(x=>String(x==null?"":x).trim());
+    const preview=row1.map(v=> (!v||/^\d+$/.test(v))?"—":v).filter(v=>v!=="—").slice(0,4);
+    let names=0;
+    for(let r=0;r<ROUNDS;r++){ const row=grid[r0+r]||[]; for(let c=0;c<SLOTS;c++){ const v=String(row[c0+c]==null?"":row[c0+c]).trim(); if(v && !/^\d+$/.test(v)) names++; } }
+    setSyncState("live",`Connected to “${S.sync.tab}”. Round 1 reads: ${preview.length?preview.join(", "):"(no names yet)"}. ${names} drafted total.`);
+    toast("Connection OK — "+names+" names found.");
   }catch(e){ setSyncState("err","Test failed: "+e.message+" — check sharing and tab name."); toast("Test failed."); }
 });
 gv("btnLoadKeepers").addEventListener("click", loadKeepers);
@@ -1772,16 +1775,18 @@ async function fetchCsv(url, proxy){
 }
 /* Read a public sheet tab directly via gviz JSONP — no proxy, no CORS. Returns a 2D
    array of strings (whole tab, header rows included). This is the primary path. */
-function gvizJsonp(id, tab, timeoutMs){
+function gvizJsonp(id, tab, opts){
+  opts = opts || {};
   return new Promise((resolve, reject)=>{
     const cb = "__gviz_" + Math.random().toString(36).slice(2);
-    const url = `https://docs.google.com/spreadsheets/d/${id}/gviz/tq`
+    let url = `https://docs.google.com/spreadsheets/d/${id}/gviz/tq`
       + `?tqx=out:json;responseHandler:${cb}&headers=0&sheet=${encodeURIComponent(tab)}`;
+    if(opts.range) url += `&range=${encodeURIComponent(opts.range)}`;
     const script = document.createElement("script");
     let done = false;
     const cleanup = ()=>{ try{ delete window[cb]; }catch(e){ window[cb]=undefined; }
       if(script.parentNode) script.parentNode.removeChild(script); clearTimeout(timer); };
-    const timer = setTimeout(()=>{ if(done) return; done=true; cleanup(); reject(new Error("timeout")); }, timeoutMs||12000);
+    const timer = setTimeout(()=>{ if(done) return; done=true; cleanup(); reject(new Error("timeout")); }, opts.timeoutMs||12000);
     window[cb] = (resp)=>{
       if(done) return; done=true; cleanup();
       try{
@@ -1819,21 +1824,49 @@ function csv2d(text){
 
 /* ---- SYNC: read the live draft grid, fill S.picks ---- */
 let syncing = false;
+const NUMERIC_CELL = /^\d+$/;   // a bare pick number = undrafted placeholder
+/* Read the exact B5:K17 block. Returns a {rel} grid: rel=true means already sliced
+   to the range (read from 0,0); rel=false means whole tab (slice by absolute index). */
+async function readDraftGrid(id){
+  // Primary: gviz JSONP with range. If Google honours it we get ~13 rows and read
+  // from (0,0); if it ignores range we get the whole tab — detect that by row count
+  // and fall back to absolute slicing so alignment can't drift.
+  try{
+    const rows = await gvizJsonp(id, S.sync.tab, {range:S.sync.range});
+    if(rows && rows.length) return {grid:rows, rel: rows.length <= ROUNDS + 3};
+  }catch(e){ /* fall through */ }
+  // Fallback A: gviz JSONP whole tab.
+  try{
+    const rows = await gvizJsonp(id, S.sync.tab, {});
+    if(rows && rows.length) return {grid:rows, rel:false};
+  }catch(e){ /* fall through */ }
+  // Fallback B: proxy CSV whole tab.
+  const txt = await fetchCsv(gvizUrl(id, S.sync.tab, null), S.sync.proxy);
+  return {grid:csv2d(txt), rel:false};
+}
 async function syncDraft(loud){
   if(syncing) return; syncing = true;
   setSyncState("work", "Syncing…");
   const id = sheetIdFrom(S.sync.sheet);
+  let res;
   try{
-    // Fetch the entire tab, then slice the draft grid by absolute cell index.
-    const grid = await fetchGrid(id, S.sync.tab);
-    const {r0,c0} = rangeTopLeft(S.sync.range);
+    res = await readDraftGrid(id);   // throws only if every path failed
+  }catch(err){
+    // Do NOT touch the board on a failed read — keeps existing picks intact.
+    setSyncState("err", `Sync failed (${err.message}). Board left unchanged. Check sharing and the tab name.`);
+    if(loud) toast("Sync failed — board left unchanged.");
+    syncing = false; return;
+  }
+  try{
+    const {grid, rel} = res;
+    const {r0,c0} = rel ? {r0:0,c0:0} : rangeTopLeft(S.sync.range);
     const next = new Array(TOTAL).fill(null);
     const unmatched = [];
     for(let r=0;r<ROUNDS;r++){
       const row = grid[r0 + r] || [];
       for(let c=0;c<SLOTS;c++){
-        const cell = (row[c0 + c]||"").trim();
-        if(!cell) continue;
+        const cell = String(row[c0 + c]==null?"":row[c0 + c]).trim();
+        if(!cell || NUMERIC_CELL.test(cell)) continue;   // blank or pick-number = undrafted
         const i = r*SLOTS + c;
         const pid = matchName(cell);
         if(pid) next[i] = pid;
@@ -1846,18 +1879,12 @@ async function syncDraft(loud){
     S.active = firstOpen()===-1 ? TOTAL-1 : firstOpen();
     save(); renderAll();
     const filled = S.picks.filter(Boolean).length;
-    if(!grid.length || grid.every(row=>!row.some(c=>String(c).trim()))){
-      setSyncState("err", `Connected to "${S.sync.tab}" but it looks empty — check the tab name matches the sheet exactly.`);
-      if(loud) toast("Connected, but the tab looks empty — check the tab name.");
-    } else {
-      setSyncState("live", `Synced ${filled}/${TOTAL} picks · ${new Date().toLocaleTimeString()}`);
-      if(loud) toast(`Synced — ${filled} picks on the board.`);
-    }
+    setSyncState("live", `Synced ${filled} drafted · ${new Date().toLocaleTimeString()}`);
+    if(loud) toast(`Synced — ${filled} players drafted so far.`);
     showUnmatched(unmatched);
-  }catch(err){
-    setSyncState("err", `Sync failed (${err.message}). Check the sheet is link-viewable and the tab name is right.`);
-    if(loud) toast("Sync failed: " + err.message);
-  }finally{ syncing = false; }
+  } finally {
+    syncing = false;   // always release the lock so the next poll/refresh can run
+  }
 }
 function setSyncState(kind, text){
   const dot = document.getElementById("syncDot");
