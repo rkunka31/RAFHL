@@ -1792,7 +1792,14 @@ function gvizJsonp(id, tab, opts){
       try{
         const t = resp && resp.table;
         if(!t){ reject(new Error("no data (is the sheet link-viewable?)")); return; }
-        const rows = (t.rows||[]).map(r => (r.c||[]).map(c => (c && c.v!=null) ? String(c.v) : (c && c.f!=null ? String(c.f) : "")));
+        const cellVal = c => (c && c.v!=null) ? String(c.v) : (c && c.f!=null ? String(c.f) : "");
+        // gviz often auto-treats the first data row as a header (even with headers=0),
+        // pulling it into cols[].label. Recover it so no round is lost.
+        const cols = t.cols || [];
+        const labels = cols.map(c => (c && c.label!=null) ? String(c.label) : "");
+        const dataRows = (t.rows||[]).map(r => (r.c||[]).map(cellVal));
+        const headerIsData = labels.some(l => l !== "" && !/^[A-Za-z]{1,3}$/.test(l));
+        const rows = headerIsData ? [labels].concat(dataRows) : dataRows;
         resolve(rows);
       }catch(e){ reject(e); }
     };
