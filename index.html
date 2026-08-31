@@ -1597,14 +1597,25 @@ gv("btnTestSheet").addEventListener("click", async ()=>{
   try{
     const id=sheetIdFrom(S.sync.sheet);
     const res=await readDraftGrid(id);
-    const {grid,rel}=res;
-    const {r0,c0}= rel?{r0:0,c0:0}:rangeTopLeft(S.sync.range);
-    const row1=(grid[r0]||[]).slice(c0,c0+SLOTS).map(x=>String(x==null?"":x).trim());
-    const preview=row1.map(v=> (!v||/^\d+$/.test(v))?"—":v).filter(v=>v!=="—").slice(0,4);
-    let names=0;
-    for(let r=0;r<ROUNDS;r++){ const row=grid[r0+r]||[]; for(let c=0;c<SLOTS;c++){ const v=String(row[c0+c]==null?"":row[c0+c]).trim(); if(v && !/^\d+$/.test(v)) names++; } }
-    setSyncState("live",`Connected to “${S.sync.tab}”. Round 1 reads: ${preview.length?preview.join(", "):"(no names yet)"}. ${names} drafted total.`);
-    toast("Connection OK — "+names+" names found.");
+    const grid=res.grid;
+    const p=bestParse(grid);
+    setSyncState(p.matched?"live":"err",
+      `Connected to “${S.sync.tab}”. Best fit: ${p.matched} players (grid offset row ${p.r0+1}, col ${p.c0+1}).`);
+    // full dump into the note area so we can see the raw response
+    const el=document.getElementById("unmatched");
+    if(el){
+      el.style.display="block";
+      const showRow = ri => (grid[ri]||[]).slice(0,12).map(x=>{
+        const v=String(x==null?"":x).trim(); return v===""?"·":v; }).join(" | ");
+      const lines=[];
+      lines.push(`<b>Diagnostic</b> — rows returned: ${grid.length}. Trying to locate the 13×10 draft grid.`);
+      lines.push(`Best offset found: row ${p.r0+1}, col ${p.c0+1} → matched ${p.matched} player names (${p.names} non-number cells).`);
+      lines.push(`<span style="color:var(--muted)">First rows of the raw response (first 12 cells each):</span>`);
+      for(let ri=0; ri<Math.min(8, grid.length); ri++) lines.push(`<span class="mono" style="font-size:11px">r${ri}: ${esc(showRow(ri))}</span>`);
+      if(p.matched===0) lines.push(`<span style="color:var(--warn)">No player names matched anywhere. Either the “${S.sync.tab}” grid currently holds only pick numbers, or the names are outside B5:K17. Compare the rows above to your sheet and tell me which row/column the first name sits in.</span>`);
+      el.innerHTML = lines.join("<br>");
+    }
+    toast(p.matched?("Found "+p.matched+" players."):"Connected, but no names matched — see diagnostic.");
   }catch(e){ setSyncState("err","Test failed: "+e.message+" — check sharing and tab name."); toast("Test failed."); }
 });
 gv("btnLoadKeepers").addEventListener("click", loadKeepers);
@@ -1832,6 +1843,48 @@ function csv2d(text){
 /* ---- SYNC: read the live draft grid, fill S.picks ---- */
 let syncing = false;
 const NUMERIC_CELL = /^\d+$/;   // a bare pick number = undrafted placeholder
+/* Parse the 13x10 draft grid starting at (r0,c0). Returns picks + counts. */
+function parseAt(grid, r0, c0){
+  const picks = new Array(TOTAL).fill(null);
+  const unmatched = []; let names = 0, numAligned = 0;
+  for(let r=0;r<ROUNDS;r++){
+    const row = grid[r0 + r] || [];
+    for(let c=0;c<SLOTS;c++){
+      const i = r*SLOTS + c;
+      const cell = String(row[c0 + c]==null?"":row[c0 + c]).trim();
+      if(!cell) continue;
+      if(NUMERIC_CELL.test(cell)){
+        // undrafted placeholder — its value is the pick number when aligned correctly
+        if(parseInt(cell,10) === i+1) numAligned++;
+        continue;
+      }
+      names++;
+      const pid = matchName(cell);
+      if(pid) picks[i] = pid; else unmatched.push(`#${i+1} "${cell}"`);
+    }
+  }
+  return { picks, unmatched, names, matched: picks.filter(Boolean).length, numAligned };
+}
+/* Google's endpoint lays the response out in a few possible ways (range honoured
+   or not, a round-label column A present or not, blank rows trimmed or not). Rather
+   than assume, try each candidate top-left and keep the one that matches the most
+   real players — matching against the 647-name guide makes false hits unlikely. */
+function bestParse(grid){
+  const rtl = rangeTopLeft(S.sync.range);
+  const seen = new Set(); const cands = [];
+  [[0,0],[0,1],[rtl.r0,rtl.c0],[rtl.r0,0],[rtl.r0-1,rtl.c0],[0,0]].forEach(([r,c])=>{
+    if(r<0||c<0) return; const k=r+","+c; if(seen.has(k)) return; seen.add(k); cands.push([r,c]);
+  });
+  let best = null;
+  for(const [r0,c0] of cands){
+    const p = parseAt(grid, r0, c0);
+    p.r0=r0; p.c0=c0;
+    // score by positional fingerprint (pick numbers) plus matched names
+    p.score = p.numAligned + p.matched*2;
+    if(!best || p.score>best.score) best = p;
+  }
+  return best || parseAt(grid, rtl.r0, rtl.c0);
+}
 /* Read the exact B5:K17 block. Returns a {rel} grid: rel=true means already sliced
    to the range (read from 0,0); rel=false means whole tab (slice by absolute index). */
 async function readDraftGrid(id){
@@ -1865,30 +1918,17 @@ async function syncDraft(loud){
     syncing = false; return;
   }
   try{
-    const {grid, rel} = res;
-    const {r0,c0} = rel ? {r0:0,c0:0} : rangeTopLeft(S.sync.range);
-    const next = new Array(TOTAL).fill(null);
-    const unmatched = [];
-    for(let r=0;r<ROUNDS;r++){
-      const row = grid[r0 + r] || [];
-      for(let c=0;c<SLOTS;c++){
-        const cell = String(row[c0 + c]==null?"":row[c0 + c]).trim();
-        if(!cell || NUMERIC_CELL.test(cell)) continue;   // blank or pick-number = undrafted
-        const i = r*SLOTS + c;
-        const pid = matchName(cell);
-        if(pid) next[i] = pid;
-        else unmatched.push(`#${i+1} "${cell}"`);
-      }
-    }
-    S.picks = next;
+    const p = bestParse(res.grid);
+    S.picks = p.picks;
     S.order = [];
     for(let i=0;i<TOTAL;i++) if(S.picks[i]) S.order.push(i);
     S.active = firstOpen()===-1 ? TOTAL-1 : firstOpen();
     save(); renderAll();
-    const filled = S.picks.filter(Boolean).length;
-    setSyncState("live", `Synced ${filled} drafted · ${new Date().toLocaleTimeString()}`);
+    const filled = p.matched;
+    setSyncState(filled||p.names===0?"live":"err",
+      `Synced ${filled} drafted · ${new Date().toLocaleTimeString()}`);
     if(loud) toast(`Synced — ${filled} players drafted so far.`);
-    showUnmatched(unmatched);
+    showUnmatched(p.unmatched);
   } finally {
     syncing = false;   // always release the lock so the next poll/refresh can run
   }
