@@ -1746,8 +1746,31 @@ function seedFromGuide(){
     dRank: (g.d==null?null:g.d)     // Athletic dynasty/keeper top-100 (U26 upside)
   }));
   computeComposite();
+  imputeApts();
   buildNameIndex();
 }
+/* ~50 guide players have no Athletic projection. Estimate their projected points from
+   the guide-rank curve so everyone sits on one points scale (flagged as estimates). */
+function imputeApts(){
+  const known = S.players.filter(p=>p.apts!=null && p.rank).sort((a,b)=>a.rank-b.rank);
+  if(!known.length) return;
+  S.players.forEach(p=>{
+    if(p.apts!=null || !p.rank) return;
+    let lo=null, hi=null;
+    for(const k of known){ if(k.rank<=p.rank) lo=k; else { hi=k; break; } }
+    if(lo&&hi){ const t=(p.rank-lo.rank)/(hi.rank-lo.rank||1); p.apts=Math.round(lo.apts+(hi.apts-lo.apts)*t); }
+    else p.apts = lo?lo.apts:(hi?hi.apts:0);
+    p.aptsImputed = true;
+  });
+}
+/* Dynasty bonus in projected-points, by tier (your spec: top-10 +50, 11-20 +40, …). */
+function dynastyBonus(d){
+  if(d==null) return 0;
+  if(d<=10) return 50; if(d<=20) return 40; if(d<=30) return 30;
+  if(d<=40) return 20; if(d<=50) return 10; return 5;   // 51-100 keep a small floor
+}
+/* Core value: projected points first, plus the dynasty bonus. Higher = better. */
+function playerValue(p){ return (p.apts!=null?p.apts:0) + dynastyBonus(p.dRank); }
 /* Two ranking sets: the guide's overall rank, and The Athletic's projected points
    converted to our scoring. Rank each, then average — a consensus that uses both. */
 let TEAM_STRENGTH = {};   // NHL team -> 0..1 offensive strength (sum of top skater proj pts)
@@ -2147,73 +2170,64 @@ function availablePlayers(){
    number of spots for roster fit. Lower effRank = better pick. This keeps the
    guide's ranking as the backbone; need/goalie only tip near-ties. */
 const WORKHORSE_GP = 58, SPLIT_GP = 51;   // goalie start-load thresholds
-/* Keeper-league upside: young (<22) players on The Athletic's dynasty top-100 get a
-   bounded boost toward the value that list implies, so high-upside kids are considered
-   without letting the tool draft a team of rookies. Returns {adj (<=0), up (bool)}. */
-function keeperUpside(p){
-  if(p.dRank==null || p.age==null || p.age>=22) return {adj:0, up:false};
-  const target = 15 + p.dRank*1.6;                 // dynasty #1≈17, #25≈55, #50≈95
-  const base = p.composite || p.rank || 650;
-  if(base <= target) return {adj:0, up:false};     // already valued high enough
-  const cap = p.age<=18?70 : p.age<=19?55 : p.age<=20?45 : 38;
-  const boost = Math.min((base - target)*0.5, cap);
-  return {adj: -boost, up: boost>=25};             // "up" flags a real breakout gap
-}
+/* Points-based scoring. Start from value (projected points + dynasty bonus), then apply
+   roster-fit adjustments — all expressed in projected-points so the scale stays consistent
+   and "points first" holds. Higher val = better pick. */
 function scorePlayer(p, rs){
-  const base = p.composite || p.rank || 650;   // consensus of both ranking sets
+  let val = playerValue(p);
   const el = eligOf(p);
   const centerOnly = el.length===1 && el[0]==="C";
-  let adj = 0, fit = "ok"; const notes=[];
+  let fit = "ok"; const notes=[];
+  const dyn = dynastyBonus(p.dRank);
+  const breakout = p.dRank!=null && dyn>=30;   // top-30 dynasty asset
+  if(breakout) notes.push(`dynasty #${p.dRank} — +${dyn} upside`);
+  else if(dyn>0) notes.push(`dynasty #${p.dRank} (+${dyn})`);
+
   if(p.cat==="G"){
-    if(rs.gCount >= GOALIE_TARGET){ adj = +40; fit = "have"; }
-    else if(rs.gShort>0 && rs.myLeft <= rs.gShort+2){ adj = -40; fit = "must"; }
-    else if(rs.gShort>0){ adj = -7; fit = "need"; }
-    else { adj = -3; fit = "target"; }
-    // tandem / handcuff logic: second goalie from a team I already own one on
+    if(rs.gCount >= GOALIE_TARGET){ val -= 70; fit = "have"; }
+    else if(rs.gShort>0 && rs.myLeft <= rs.gShort+2){ val += 120; fit = "must"; }
+    else if(rs.gShort>0){ val += 18; fit = "need"; }
+    else { val += 6; fit = "target"; }
     const mate = (rs.myGoalies||[]).find(g=>g.team===p.team && g.id!==p.id);
     if(mate){
       const mateGp = mate.gp||55, ts = TEAM_STRENGTH[p.team]!=null?TEAM_STRENGTH[p.team]:0.5;
-      if(mateGp >= WORKHORSE_GP){ adj += 40; notes.push("backup to a workhorse — low value"); if(fit==="need"||fit==="target") fit="depth"; }
-      else if((p.gp||55) <= SPLIT_GP && mateGp <= SPLIT_GP && ts >= 0.5){ adj -= 8; notes.push("true split on a strong team — a full goalie set is worth it"); }
-      else { adj += 8; notes.push("second goalie from same team"); }
+      if(mateGp >= WORKHORSE_GP){ val -= 45; notes.push("backup to a workhorse — low value"); if(fit==="need"||fit==="target") fit="depth"; }
+      else if((p.gp||55) <= SPLIT_GP && mateGp <= SPLIT_GP && ts >= 0.5){ val += 12; notes.push("true split on a strong team — full goalie set worth it"); }
+      else { val -= 8; notes.push("second goalie from same team"); }
     }
   } else if(centerOnly){
-    if(rs.centerOnly >= CENTER_MAX){ adj = +60; fit = "have"; }
-    else if(rs.centerOnly >= 4){ adj = +12; fit = "depth"; }
-    else if((rs.remain.C||0) > 0){ adj = -8; fit = "need"; }
-    else if(rs.utilOpen){ adj = -2; fit = "util"; }
-    else { adj = +8; fit = "depth"; }
+    if(rs.centerOnly >= CENTER_MAX){ val -= 70; fit = "have"; }
+    else if(rs.centerOnly >= 4){ val -= 18; fit = "depth"; }
+    else if((rs.remain.C||0) > 0){ val += 12; fit = "need"; }
+    else if(rs.utilOpen){ val += 4; fit = "util"; }
+    else { val -= 8; fit = "depth"; }
   } else {
     const fillsStarter = el.some(x=>(rs.remain[x]||0) > 0);
-    if(fillsStarter){ adj = -8; fit = "need"; }
-    else if(rs.utilOpen){ adj = -2; fit = "util"; }
-    else if(rs.benchOpen){ adj = +8; fit = "depth"; }
-    else { adj = +30; fit = "full"; }
+    if(fillsStarter){ val += 12; fit = "need"; }
+    else if(rs.utilOpen){ val += 4; fit = "util"; }
+    else if(rs.benchOpen){ val -= 8; fit = "depth"; }
+    else { val -= 40; fit = "full"; }
   }
-  // diversification: avoid 3+ skaters from one NHL team
+  // diversification + good-team lean (skaters)
   if(p.cat!=="G"){
     const same = (rs.teamCount && rs.teamCount[p.team]) || 0;
-    if(same >= 2){ adj += 16; notes.push(`already ${same} ${p.team} skaters — diversify`); }
-    else if(same === 1){ adj += 3; }
-    // lean toward players on good NHL teams (small)
-    const ts = TEAM_STRENGTH[p.team];
-    if(ts!=null) adj -= Math.round((ts-0.5)*6);   // ±3 spots
+    if(same >= 2){ val -= 25; notes.push(`already ${same} ${p.team} skaters — diversify`); }
+    else if(same === 1){ val -= 4; }
+    const ts = TEAM_STRENGTH[p.team]; if(ts!=null) val += (ts-0.5)*8;   // ±4 pts
   }
-  // keeper-league upside: dynasty-listed young players get a bounded boost; others a small tilt
-  const ku = keeperUpside(p);
-  if(ku.adj){ adj += ku.adj; notes.push(`keeper upside — dynasty #${p.dRank}, age ${p.age}${ku.up?" (breakout)":""}`); }
-  else if(p.age!=null){
-    if(p.age<=21) adj -= 5; else if(p.age<=23) adj -= 3;
-    else if(p.age>=32) adj += 4; else if(p.age>=30) adj += 2;
+  // small youth tilt for young players NOT already covered by the dynasty bonus
+  if(p.dRank==null && p.age!=null){
+    if(p.age<=21) val += 5; else if(p.age<=23) val += 2;
+    else if(p.age>=32) val -= 4; else if(p.age>=30) val -= 2;
   }
-  return { eff: base + adj, adj, fit, notes, breakout: ku.up };
+  return { val, fit, notes, breakout };
 }
 function recommend(){
   const rs = rosterState();
   const avail = availablePlayers();
   const scored = avail.map(p=>({p, ...scorePlayer(p, rs)}))
-                      .sort((a,b)=>a.eff-b.eff);
-  const bestOverall = avail.slice().sort((a,b)=>((a.composite||a.rank||999)-(b.composite||b.rank||999)))[0] || null;
+                      .sort((a,b)=>b.val-a.val);          // higher value = better
+  const bestOverall = avail.slice().sort((a,b)=>playerValue(b)-playerValue(a))[0] || null;
   return { rs, ranked: scored, pick: scored[0]||null, bestOverall };
 }
 function recReason(entry, rs){
@@ -2229,10 +2243,9 @@ function recReason(entry, rs){
     else bits.push(`best-value depth (${el.join("/")} starters set)`);
   }
   if(entry.fit==="have" && el.length===1 && el[0]==="C") bits.push(`you already have ${rs.centerOnly} centres — holding off (faceoff points inflate their value)`);
-  const rk=[]; if(p.rank) rk.push(`guide #${p.rank}`); if(p.aRank) rk.push(`points #${p.aRank}`);
-  bits.push(rk.join(", ") + (p.apts!=null?` (~${Math.round(p.apts)} proj pts)`:""));
-  if(p.age!=null && p.age<=22) bits.push(`age ${p.age} — keeper upside`);
-  if(entry.notes && entry.notes.length) bits.push(entry.notes.join("; "));
+  bits.push(`~${Math.round(playerValue(p))} value pts (${p.apts!=null?Math.round(p.apts):"?"} proj${p.aptsImputed?" est":""}${dynastyBonus(p.dRank)>0?` +${dynastyBonus(p.dRank)} dynasty`:""})`);
+  if(p.age!=null && p.age<=22 && p.dRank!=null) bits.push(`age ${p.age} — keeper upside`);
+  if(entry.notes && entry.notes.length) bits.push(entry.notes.filter(n=>!n.startsWith("dynasty #")).join("; "));
   return bits.join("; ") + ".";
 }
 
@@ -2298,16 +2311,16 @@ function renderRankTable(rec){
   if(pos) list = list.filter(e=>e.p.pos===pos);
   if(needOnly) list = list.filter(e=>['need','must','util','target'].includes(e.fit));
   document.getElementById("rankTable").innerHTML =
-    `<thead><tr><th>Guide</th><th>Pts#</th><th>Dyn</th><th>Player</th><th>Tm</th><th>Pos</th><th>Age</th><th>Proj pts</th><th>Fit</th></tr></thead><tbody>` +
+    `<thead><tr><th>Value</th><th>Proj</th><th>Dyn</th><th>Player</th><th>Tm</th><th>Pos</th><th>Age</th><th>Guide</th><th>Fit</th></tr></thead><tbody>` +
     list.slice(0,300).map(e=>`<tr>
-      <td class="mono">${e.p.rank||""}</td>
-      <td class="mono">${e.p.aRank||""}</td>
+      <td class="mono" style="font-weight:700">${Math.round(playerValue(e.p))}</td>
+      <td class="mono">${e.p.apts!=null?Math.round(e.p.apts)+(e.p.aptsImputed?"~":""):""}</td>
       <td class="mono" style="color:${e.breakout?'#F2C572':'var(--muted)'}">${e.p.dRank?("#"+e.p.dRank+(e.breakout?" ⚡":"")):""}</td>
       <td>${esc(e.p.name)}</td>
       <td class="mono">${esc(e.p.team)}</td>
       <td><span class="rankpos ${e.p.cat}">${esc(e.p.pos)}</span></td>
       <td class="mono" style="color:${e.p.age!=null&&e.p.age<22?'#8FD3F4':'var(--dim)'}">${e.p.age!=null?e.p.age:""}</td>
-      <td class="mono">${e.p.apts!=null?Math.round(e.p.apts):""}</td>
+      <td class="mono" style="color:var(--dim)">${e.p.rank||""}</td>
       <td class="mono" style="color:${['need','must','util'].includes(e.fit)?'var(--good)':['full','have','depth'].includes(e.fit)?'var(--dim)':'var(--muted)'}">${({need:"NEED",must:"NEED NOW",util:"util",target:"G depth",depth:"depth",have:"set",full:"full"})[e.fit]||"ok"}</td>
     </tr>`).join("") + `</tbody>`;
 }
@@ -2412,7 +2425,7 @@ function botPickFor(i){
   let best=null, bestScore=-1e9;
   const avail = S.players.filter(p=>!taken.has(p.id) && !kept.has(p.id));
   for(const p of avail){
-    let v = 700 - (p.composite || p.rank || 650);       // best available baseline
+    let v = playerValue(p);       // projected points + dynasty bonus (same currency as my scoring)
     const el = eligOf(p);
     // roster need for this bot
     if(p.cat==="G"){ if(rc.G < targets.G) v += 22; else v -= 60; }
