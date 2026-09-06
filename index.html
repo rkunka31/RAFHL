@@ -542,6 +542,18 @@ table.owners select{width:100%;padding:4px 4px;font-size:11px;font-family:var(--
       <div class="btnrow" style="margin-bottom:12px">
         <button id="btnLock" class="ghost">Lock &amp; hide</button>
       </div>
+      <div class="panel" style="margin-bottom:14px">
+        <h2>Draft strategies</h2>
+        <p class="help">These shape the recommendation to build a complete team, not just the next-best player.
+          Toggle any off to see the effect.</p>
+        <div style="display:grid;grid-template-columns:1fr;gap:7px;max-width:680px">
+          <label class="kv"><input type="checkbox" id="stEliteG" style="margin-right:8px"><b>Elite goalie early</b> — lock up a top-3 goalie in the first round or two</label>
+          <label class="kv"><input type="checkbox" id="stScarcity" style="margin-right:8px"><b>Positional scarcity</b> — grab from thinning tiers at spots you still need</label>
+          <label class="kv"><input type="checkbox" id="stDelay" style="margin-right:8px"><b>Wait on stocked spots</b> — hold off on positions your keepers already cover (e.g. D) until ~round 7</label>
+          <label class="kv"><input type="checkbox" id="stPhased" style="margin-right:8px"><b>Phase upside by round</b> — proven value early, keeper fliers late</label>
+          <label class="kv"><input type="checkbox" id="stFill" style="margin-right:8px"><b>Fill every starter</b> — never run out of picks with an empty starting slot</label>
+        </div>
+      </div>
       <div id="recMain"></div>
       <div id="recAlts"></div>
     <div class="panel" style="margin-top:14px">
@@ -572,6 +584,7 @@ table.owners select{width:100%;padding:4px 4px;font-size:11px;font-family:var(--
         It stops on each of your picks so you can choose, then continues to your next one.</p>
       <div class="btnrow">
         <button id="btnMockStart" class="primary">Start / restart mock</button>
+        <button id="btnMockAuto" class="ghost">Full auto (draft my team too)</button>
         <button id="btnMockReset" class="danger">Reset draft</button>
         <label class="kv" style="margin-left:8px"><input id="mockRandom" type="checkbox" checked style="margin-right:6px">Vary bot picks each run</label>
       </div>
@@ -772,7 +785,8 @@ let S = {
           poll:true, pollSec:60, proxy:true },
   keeperIds: {},            // teamCode -> [playerId]
   unlocked: false,
-  mockActive: false
+  mockActive: false,
+  STRAT: { eliteG:true, scarcity:true, delayStocked:true, phased:true, fillStarters:true }
 };
 
 let clock = { left: 90, running:false, between:false, betweenLeft:0, last:0 };
@@ -784,7 +798,7 @@ function save(){
     localStorage.setItem(STORE_KEY, JSON.stringify({
       teams:S.teams, board:S.board, players:S.players,
       picks:S.picks, order:S.order, active:S.active, cfg:S.cfg, boardView:S.boardView,
-      sync:S.sync, keeperIds:S.keeperIds, unlocked:S.unlocked
+      sync:S.sync, keeperIds:S.keeperIds, unlocked:S.unlocked, STRAT:S.STRAT
     }));
   }catch(e){ /* private mode or sandbox — in-memory only */ }
 }
@@ -805,6 +819,7 @@ function load(){
     if(d.sync) S.sync = Object.assign(S.sync, d.sync);
     S.keeperIds = d.keeperIds || {};
     S.unlocked = !!d.unlocked;
+    if(d.STRAT) S.STRAT = Object.assign(S.STRAT, d.STRAT);
     return true;
   }catch(e){ return false; }
 }
@@ -1664,6 +1679,10 @@ bindSync("cfgPollSec","pollSec",true); bindSync("cfgProxy","proxy",false,true);
 
 gv("btnMockStart").addEventListener("click", startMock);
 gv("btnMockReset").addEventListener("click", resetDraft);
+gv("btnMockAuto").addEventListener("click", mockAutoAll);
+[["stEliteG","eliteG"],["stScarcity","scarcity"],["stDelay","delayStocked"],["stPhased","phased"],["stFill","fillStarters"]].forEach(([id,k])=>{
+  const el=gv(id); if(el) el.addEventListener("change",e=>{ S.STRAT[k]=e.target.checked; save(); renderAll(); });
+});
 gv("btnUnlock").addEventListener("click",()=>{
   const v=gv("cfgUnlock").value.trim();
   if(v && v.toLowerCase()===UNLOCK_CODE.toLowerCase()){
@@ -1783,8 +1802,14 @@ function computeTeamStrength(){
   TEAM_STRENGTH = {};
   Object.keys(score).forEach(t=>{ TEAM_STRENGTH[t] = mx>mn ? (score[t]-mn)/(mx-mn) : 0.5; });
 }
+let ELITE_G = new Set();   // top-3 goalies by projected points
+function computeEliteGoalies(){
+  const gs = S.players.filter(p=>p.cat==="G" && p.apts!=null).sort((a,b)=>b.apts-a.apts);
+  ELITE_G = new Set(gs.slice(0,3).map(p=>p.id));
+}
 function computeComposite(){
   computeTeamStrength();
+  computeEliteGoalies();
   const withPts = S.players.filter(p=>p.apts!=null).slice().sort((a,b)=>b.apts-a.apts);
   withPts.forEach((p,i)=>{ p.aRank = i+1; });          // 1 = most projected points
   S.players.forEach(p=>{
@@ -2156,7 +2181,11 @@ function rosterState(){
   const teamCount = {};   // NHL team -> # of my skaters (F/D)
   roster.forEach(pl=>{ if(pl.cat!=="G" && pl.team) teamCount[pl.team]=(teamCount[pl.team]||0)+1; });
   const myGoalies = roster.filter(pl=>pl.cat==="G");   // for tandem logic
-  return { slots, byPos, remain, startNeed, utilOpen, benchOpen, gCount, totalOpen, myLeft, gShort, centerOnly, teamCount, myGoalies };
+  const owned = {C:0,LW:0,RW:0,D:0,G:0};
+  roster.forEach(pl=>{ if(pl.cat==="G") owned.G++; else eligOf(pl).forEach(x=>{ if(owned[x]!=null) owned[x]++; }); });
+  const hasEliteG = roster.some(pl=>ELITE_G.has(pl.id));
+  const round = roundOf(firstOpen()===-1?TOTAL-1:firstOpen())||1;
+  return { slots, byPos, remain, startNeed, utilOpen, benchOpen, gCount, totalOpen, myLeft, gShort, centerOnly, teamCount, myGoalies, owned, hasEliteG, round };
 }
 function TOTAL_ROSTER(){ return ROSTER_REQ.C+ROSTER_REQ.LW+ROSTER_REQ.RW+ROSTER_REQ.D+ROSTER_REQ.UTIL+ROSTER_REQ.G+ROSTER_REQ.BENCH; }
 
@@ -2220,11 +2249,58 @@ function scorePlayer(p, rs){
     if(p.age<=21) val += 5; else if(p.age<=23) val += 2;
     else if(p.age>=32) val -= 4; else if(p.age>=30) val -= 2;
   }
+
+  /* ---- Dynamic draft strategies (toggleable) ---- */
+  const ST = S.STRAT || {}; const round = rs.round || 1; const el2 = eligOf(p);
+  // 1) Lock up an elite goalie early
+  if(ST.eliteG && p.cat==="G" && ELITE_G.has(p.id) && !rs.hasEliteG){
+    const b = round<=1 ? 120 : round<=2 ? 80 : round<=4 ? 40 : 0;
+    if(b){ val += b; fit="need"; notes.push("elite goalie — lock one up early"); }
+  }
+  // 2) Positional scarcity — grab from thinning tiers at positions you still need
+  if(ST.scarcity){
+    if(p.cat==="G"){ if(rs.gShort>0 && (rs.posTierCount.G||99)<=3){ val+=14; notes.push("goalie tier thinning"); } }
+    else {
+      let sc=0; el2.filter(x=>(rs.remain[x]||0)>0).forEach(x=>{ const c=rs.posTierCount[x]||99;
+        if(c<=3) sc=Math.max(sc,16); else if(c<=5) sc=Math.max(sc,7); });
+      if(sc){ val+=sc; notes.push("scarce at a spot you need"); }
+    }
+  }
+  // 3) Wait on positions you're already stocked at (e.g., 2 D keepers -> hold D to ~R7)
+  if(ST.delayStocked && p.cat!=="G" && round < 7){
+    let pen=0;
+    el2.forEach(x=>{ const have=rs.owned[x]||0, req=ROSTER_REQ[x]||0;
+      if(have >= Math.max(2, req-2)){ pen = Math.max(pen, 34 - (round-1)*5); } });
+    if(pen){ val -= pen; notes.push(`stocked here — better to wait (~R7+)`); }
+  }
+  // 4) Phase upside by round — value early, keeper fliers late
+  if(ST.phased && p.dRank!=null){
+    const dyn = dynastyBonus(p.dRank);
+    const factor = round<=4 ? 0.6 : round<=8 ? 1.0 : 1.6;
+    val += dyn*(factor-1);
+  }
+  // 5) Make sure every starting slot gets filled before running out of picks
+  if(ST.fillStarters){
+    const unfilled = (rs.remain.C||0)+(rs.remain.LW||0)+(rs.remain.RW||0)+(rs.remain.D||0)+(rs.utilOpen?1:0)+(rs.gShort||0);
+    if(rs.myLeft <= unfilled + 1){
+      const fills = p.cat==="G" ? rs.gShort>0 : (el2.some(x=>(rs.remain[x]||0)>0) || rs.utilOpen);
+      if(fills){ val += 30; if(fit==="depth"||fit==="have") fit="need"; notes.push("fill a starter — few picks left"); }
+      else { val -= 30; }
+    }
+  }
   return { val, fit, notes, breakout };
 }
 function recommend(){
   const rs = rosterState();
   const avail = availablePlayers();
+  // positional tier depth: how many available at each position sit in the current value tier
+  const posTierCount = {};
+  ["C","LW","RW","D","G"].forEach(pos=>{
+    const vals = avail.filter(pl=>pl.cat==="G" ? pos==="G" : eligOf(pl).includes(pos))
+                      .map(pl=>playerValue(pl)).sort((a,b)=>b-a);
+    posTierCount[pos] = vals.length ? vals.filter(v=>v >= vals[0]-20).length : 0;
+  });
+  rs.posTierCount = posTierCount;
   const scored = avail.map(p=>({p, ...scorePlayer(p, rs)}))
                       .sort((a,b)=>b.val-a.val);          // higher value = better
   const bestOverall = avail.slice().sort((a,b)=>playerValue(b)-playerValue(a))[0] || null;
@@ -2270,8 +2346,13 @@ function renderBanner(){
     el.innerHTML = `<div class="lbl">On the clock</div><div class="plr">${esc(t.name)} · pick #${i+1} (round ${roundOf(i)})</div>`;
   }
 }
+function syncStratInputs(){
+  const m={stEliteG:"eliteG",stScarcity:"scarcity",stDelay:"delayStocked",stPhased:"phased",stFill:"fillStarters"};
+  Object.keys(m).forEach(id=>{ const el=document.getElementById(id); if(el) el.checked=!!S.STRAT[m[id]]; });
+}
 function renderMyTeam(){
   if(!S.unlocked) return;
+  syncStratInputs();
   const rec = recommend(); const rs = rec.rs;
   // main rec
   const main = document.getElementById("recMain");
@@ -2457,6 +2538,27 @@ function mockAdvance(){
   }
   S.active = i===-1 ? TOTAL-1 : i;
   save(); renderAll();
+}
+/* Run the entire draft automatically — bots for other teams, the recommended pick for
+   me — so you can see the full team the strategies build. */
+function mockAutoAll(){
+  if(!S.mockActive){
+    if(!confirm("Full auto: run a whole draft, picking my team by the recommendation too? Clears the board (keepers stay) and pauses live sync.")) return;
+    S.mockActive = true; S.sync.poll = false; applyPoll();
+    S.picks = new Array(TOTAL).fill(null); S.order = [];
+  }
+  let guard=0;
+  while(firstOpen()>=0 && guard++<TOTAL+5){
+    const i = firstOpen();
+    if(S.board[i]===MY_TEAM_CODE){
+      const rec = recommend();
+      if(rec.pick){ S.picks[i]=rec.pick.p.id; if(!S.order.includes(i)) S.order.push(i); }
+      else botPickFor(i);
+    } else botPickFor(i);
+  }
+  S.active = TOTAL-1; save(); renderAll();
+  const st=document.getElementById("mockStatus"); if(st) st.textContent="Full mock complete — review your team below, then Reset to run again.";
+  toast("Full auto draft complete.");
 }
 function startMock(){
   if(!confirm("Start a fresh mock draft? This clears the board (keepers stay) and pauses live sync.")) return;
