@@ -2202,6 +2202,12 @@ function rosterState(){
   const totalOpen = TOTAL_ROSTER() - roster.length;
   const myLeft = myPickIndices().filter(i=>!S.picks[i]).length;
   const gShort = Math.max(0, ROSTER_REQ.G - cnt("G"));
+  // League rules: must field 4 D total (keepers+drafted); must DRAFT >=1 goalie; max 4 goalies.
+  const keptG = roster.filter(pl=>pl.cat==="G" && keptIds.has(pl.id)).length;
+  const draftedG = Math.max(0, gCount - keptG);
+  const mustDraftG = draftedG < 1;                       // at least one goalie must be drafted
+  const gRoom = Math.max(0, GOALIE_TARGET - gCount);     // GOALIE_TARGET = hard max (4)
+  const dShort = Math.max(0, ROSTER_REQ.D - cnt("D"));   // D still needed to reach 4 total
   // centre-only = single-eligibility C; dual-eligible centres don't count toward the cap
   const centerOnly = roster.filter(pl=>{ const e=eligOf(pl); return e.length===1 && e[0]==="C"; }).length;
   const teamCount = {};   // NHL team -> # of my skaters (F/D)
@@ -2211,7 +2217,7 @@ function rosterState(){
   roster.forEach(pl=>{ if(pl.cat==="G") owned.G++; else eligOf(pl).forEach(x=>{ if(owned[x]!=null) owned[x]++; }); });
   const hasEliteG = roster.some(pl=>ELITE_G.has(pl.id));
   const round = roundOf(firstOpen()===-1?TOTAL-1:firstOpen())||1;
-  return { slots, byPos, remain, startNeed, utilOpen, benchOpen, gCount, totalOpen, myLeft, gShort, centerOnly, teamCount, myGoalies, owned, hasEliteG, round };
+  return { slots, byPos, remain, startNeed, utilOpen, benchOpen, gCount, totalOpen, myLeft, gShort, centerOnly, teamCount, myGoalies, owned, hasEliteG, round, keptG, draftedG, mustDraftG, gRoom, dShort };
 }
 function TOTAL_ROSTER(){ return ROSTER_REQ.C+ROSTER_REQ.LW+ROSTER_REQ.RW+ROSTER_REQ.D+ROSTER_REQ.UTIL+ROSTER_REQ.G+ROSTER_REQ.BENCH; }
 
@@ -2246,10 +2252,12 @@ function scorePlayer(p, rs){
   if(dyn>0) notes.push(`dynasty #${p.dRank} (+${dyn})`);
 
   if(p.cat==="G"){
-    if(rs.gCount >= GOALIE_TARGET){ val -= 70; fit = "have"; }
-    else if(rs.gShort>0 && rs.myLeft <= rs.gShort+2){ val += 120; fit = "must"; }
-    else if(rs.gShort>0){ val += 18; fit = "need"; }
-    else { val += 6; fit = "target"; }
+    if(rs.gCount >= GOALIE_TARGET){ val -= 500; fit = "have"; }                 // hard max: 4 goalies
+    else if(rs.mustDraftG && rs.myLeft <= 3){ val += 140; fit = "must"; notes.push("must draft a goalie — running out of picks"); }
+    else if(rs.mustDraftG){ val += 24; fit = "need"; notes.push("must draft at least one goalie"); }
+    else if(rs.gShort>0 && rs.myLeft <= rs.gShort+2){ val += 110; fit = "must"; }
+    else if(rs.gShort>0){ val += 16; fit = "need"; }
+    else { val += 5; fit = "target"; }
     const mate = (rs.myGoalies||[]).find(g=>g.team===p.team && g.id!==p.id);
     if(mate){
       const mateGp = mate.gp||55, ts = TEAM_STRENGTH[p.team]!=null?TEAM_STRENGTH[p.team]:0.5;
@@ -2269,6 +2277,11 @@ function scorePlayer(p, rs){
     else if(rs.utilOpen){ val += 4; fit = "util"; }
     else if(rs.benchOpen){ val -= 8; fit = "depth"; }
     else { val -= 40; fit = "full"; }
+  }
+  // hard requirement: field 4 D total (keepers + drafted)
+  if(p.cat==="D" && rs.dShort>0){
+    if(rs.myLeft <= rs.dShort+2){ val += 90; fit = "must"; notes.push(`must reach 4 D (${rs.byPos.D}/4)`); }
+    else if((rs.round||1)>=7){ val += 8; }
   }
   // diversification + good-team lean (skaters)
   if(p.cat!=="G"){
@@ -2314,9 +2327,10 @@ function scorePlayer(p, rs){
   }
   // 5) Make sure every starting slot gets filled before running out of picks
   if(ST.fillStarters){
-    const unfilled = (rs.remain.C||0)+(rs.remain.LW||0)+(rs.remain.RW||0)+(rs.remain.D||0)+(rs.utilOpen?1:0)+(rs.gShort||0);
+    const gUrgent = Math.max(rs.gShort||0, rs.mustDraftG?1:0);
+    const unfilled = (rs.remain.C||0)+(rs.remain.LW||0)+(rs.remain.RW||0)+(rs.remain.D||0)+(rs.utilOpen?1:0)+gUrgent;
     if(rs.myLeft <= unfilled + 1){
-      const fills = p.cat==="G" ? rs.gShort>0 : (el2.some(x=>(rs.remain[x]||0)>0) || rs.utilOpen);
+      const fills = p.cat==="G" ? (rs.gShort>0 || rs.mustDraftG) : (el2.some(x=>(rs.remain[x]||0)>0) || rs.utilOpen);
       if(fills){ val += 30; if(fit==="depth"||fit==="have") fit="need"; notes.push("fill a starter — few picks left"); }
       else { val -= 30; }
     }
@@ -2352,8 +2366,9 @@ function recReason(entry, rs){
   if(!entry) return "";
   const p = entry.p; const el = eligOf(p); const bits=[];
   if(p.cat==="G"){
-    if(rs.gShort>0) bits.push(`fills a starting goalie slot (${rs.gCount}/${ROSTER_REQ.G})`);
-    else bits.push(`goalie depth toward your target of ${GOALIE_TARGET} (${rs.gCount} so far)`);
+    if(rs.mustDraftG) bits.push(`must draft at least one goalie (${rs.draftedG} drafted so far)`);
+    else if(rs.gShort>0) bits.push(`fills a starting goalie slot (${rs.gCount}/${ROSTER_REQ.G})`);
+    else bits.push(`goalie depth (max ${GOALIE_TARGET}; ${rs.gCount} rostered)`);
   } else {
     const needPos = el.filter(x=>(rs.remain[x]||0)>0);
     if(needPos.length) bits.push(`fills a ${needPos.join("/")} starter slot`);
@@ -2422,7 +2437,7 @@ function renderMyTeam(){
         || `<div class="pl" style="color:var(--dim)">—</div>`;
       return `<div class="rslot"><div class="h ${cls}"><span>${sl.k}</span><b>${sl.fill.length}/${sl.cap}</b></div>${rows}</div>`;
     }).join("") + `</div>
-    <div class="kv" style="margin-top:10px">Goalies: <b>${rs.gCount}</b> (target ${GOALIE_TARGET}) · Open roster spots: <b>${rs.totalOpen}</b></div>`;
+    <div class="kv" style="margin-top:10px">D: <b>${rs.byPos.D}</b>/4 required · Goalies: <b>${rs.gCount}</b> (drafted ${rs.draftedG} · min 1, max ${GOALIE_TARGET}) · Open spots: <b>${rs.totalOpen}</b></div>`;
   // rankings table
   renderRankTable(rec);
 }
@@ -2545,18 +2560,33 @@ function botPickFor(i){
   const rc = botRosterCounts(code);
   const jitter = document.getElementById("mockRandom") && document.getElementById("mockRandom").checked;
   const targets = {C:3,LW:3,RW:3,D:4,G:GOALIE_TARGET};
+  // remaining picks for this bot, and unmet hard requirements (4 D total, >=1 goalie)
+  let picksLeft=0; S.board.forEach((cd,k)=>{ if(cd===code && !S.picks[k]) picksLeft++; });
+  const dNeed = Math.max(0, 4 - (rc.D||0));
+  const gNeed = (rc.G||0) < 1 ? 1 : 0;
+  const mustFillNow = picksLeft <= (dNeed + gNeed);   // out of slack — fill requirements
   let best=null, bestScore=-1e9;
   const avail = S.players.filter(p=>!taken.has(p.id) && !kept.has(p.id));
   for(const p of avail){
     let v = playerValue(p);       // projected points + dynasty bonus (same currency as my scoring)
     const el = eligOf(p);
     // roster need for this bot
-    if(p.cat==="G"){ if(rc.G < targets.G) v += 22; else v -= 60; }
-    else {
+    if(p.cat==="G"){
+      if(rc.G >= 4) v -= 500;                                   // hard max 4
+      else if(rc.G===0 && round>=10) v += 90;                   // must end with a goalie
+      else if(rc.G < 2) v += 22; else v += 4;
+    } else {
       const needs = el.some(x=> (rc[x]||0) < (targets[x]||0));
-      if(needs) v += 12; 
+      if(needs) v += 12;
+      if(p.cat==="D" && (rc.D||0) < 4 && round>=9) v += 25;     // fill to 4 D late
       if(el.length===1 && el[0]==="C" && rc.centerOnly>=5) v -= 60;   // centre cap for bots too
       const same = rc.byTeam[p.team]||0; if(same>=3) v -= 40; else if(same>=2) v -= 12;
+    }
+    // hard requirement enforcement when picks run out: must reach 4 D and draft >=1 goalie
+    if(mustFillNow){
+      if(dNeed>0 && p.cat==="D") v += 1000;
+      else if(gNeed>0 && p.cat==="G" && rc.G<4) v += 1000;
+      else if((dNeed>0 && p.cat!=="D") || (gNeed>0 && p.cat!=="G")) v -= 400;
     }
     // tendencies
     if(round===1 && rc.G===0 && p.cat==="G") v += 55;                 // grab a goalie in R1
